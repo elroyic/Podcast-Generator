@@ -1,0 +1,199 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: podcast_ai
+      POSTGRES_USER: podcast_user
+      POSTGRES_PASSWORD: podcast_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podcast_user -d podcast_ai"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API Gateway
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+
+  # AI Overseer Service
+  ai-overseer:
+    build: ./services/ai-overseer
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+
+  # News Feed Service
+  news-feed:
+    build: ./services/news-feed
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+
+  # Text Generation Service
+  text-generation:
+    build: ./services/text-generation
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+
+  # Writer Service
+  writer:
+    build: ./services/writer
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+
+  # Presenter Service
+  presenter:
+    build: ./services/presenter
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+
+  # Publishing Service
+  publishing:
+    build: ./services/publishing
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
+
+  # Ollama for local LLM inference
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Celery Worker
+  celery-worker:
+    build: ./services/ai-overseer
+    command: celery -A app.celery worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+
+  # Celery Beat (Scheduler)
+  celery-beat:
+    build: ./services/ai-overseer
+    command: celery -A app.celery beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+
+volumes:
+  postgres_data:
+  ollama_data:
