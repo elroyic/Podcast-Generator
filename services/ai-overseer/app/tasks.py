@@ -129,6 +129,7 @@ def should_generate_episode(group: PodcastGroup) -> bool:
             return False
         
         # Get the last episode for this group
+        db = get_db_session()
         last_episode = db.query(Episode).filter(
             Episode.group_id == group.id,
             Episode.status == EpisodeStatus.PUBLISHED
@@ -147,6 +148,11 @@ def should_generate_episode(group: PodcastGroup) -> bool:
     except Exception as e:
         logger.error(f"Error checking schedule for group {group.id}: {e}")
         return False
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 @celery.task

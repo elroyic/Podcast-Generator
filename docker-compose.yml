@@ -21,8 +21,6 @@ services:
   # Redis for Celery
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -47,6 +45,7 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # AI Overseer Service
   ai-overseer:
@@ -64,6 +63,7 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # News Feed Service
   news-feed:
@@ -78,6 +78,7 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Text Generation Service
   text-generation:
@@ -95,6 +96,7 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Writer Service
   writer:
@@ -112,6 +114,7 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Presenter Service
   presenter:
@@ -126,6 +129,7 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Publishing Service
   publishing:
@@ -140,12 +144,11 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Ollama for local LLM inference
   ollama:
     image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     environment:
@@ -175,6 +178,7 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Celery Beat (Scheduler)
   celery-beat:
@@ -193,6 +197,7 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
 volumes:
   postgres_data:
