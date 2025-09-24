@@ -18,9 +18,14 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from shared.database import get_db, create_tables
-from shared.models import Episode, AudioFile, Presenter
-from shared.schemas import AudioFileCreate, AudioFile as AudioFileSchema
+# Add the shared directory to Python path
+import sys
+import os
+sys.path.append('/app/shared')
+
+from database import get_db, create_tables
+from models import Episode, AudioFile, Presenter
+from schemas import AudioFileCreate, AudioFile as AudioFileSchema
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

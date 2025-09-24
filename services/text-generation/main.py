@@ -13,8 +13,13 @@ from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Article, Presenter
+# Add the shared directory to Python path
+import sys
+import os
+sys.path.append('/app/shared')
+
+from database import get_db, create_tables
+from models import PodcastGroup, Article, Presenter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

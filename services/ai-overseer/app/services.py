@@ -9,8 +9,13 @@ from uuid import UUID
 import httpx
 from sqlalchemy.orm import Session
 
-from shared.database import get_db_session
-from shared.models import PodcastGroup, Article, Episode, EpisodeStatus, EpisodeMetadata, AudioFile
+# Add the shared directory to Python path
+import sys
+import os
+sys.path.append('/app/shared')
+
+from database import get_db_session
+from models import PodcastGroup, Article, Episode, EpisodeStatus, EpisodeMetadata, AudioFile
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +41,7 @@ class NewsFeedService(ServiceClient):
     """Client for News Feed Service."""
     
     def __init__(self):
-        super().__init__("http://news-feed:8001")
+        super().__init__("http://localhost:8001")
     
     async def get_recent_articles(
         self,
@@ -86,7 +91,7 @@ class TextGenerationService(ServiceClient):
     """Client for Text Generation Service."""
     
     def __init__(self):
-        super().__init__("http://text-generation:8002")
+        super().__init__("http://localhost:8002")
     
     async def generate_script(
         self,
@@ -113,7 +118,7 @@ class WriterService(ServiceClient):
     """Client for Writer Service."""
     
     def __init__(self):
-        super().__init__("http://writer:8003")
+        super().__init__("http://localhost:8003")
     
     async def generate_metadata(
         self,
@@ -140,7 +145,7 @@ class PresenterService(ServiceClient):
     """Client for Presenter Service."""
     
     def __init__(self):
-        super().__init__("http://presenter:8004")
+        super().__init__("http://localhost:8004")
     
     async def generate_audio(
         self,
@@ -167,7 +172,7 @@ class PublishingService(ServiceClient):
     """Client for Publishing Service."""
     
     def __init__(self):
-        super().__init__("http://publishing:8005")
+        super().__init__("http://localhost:8005")
     
     async def publish_episode(
         self,
@@ -200,7 +205,7 @@ class EpisodeGenerationService:
         self.presenter_service = PresenterService()
         self.publishing_service = PublishingService()
     
-    async def generate_complete_episode(self, group_id: UUID) -> Dict[str, Any]:
+    def generate_complete_episode(self, group_id: UUID) -> Dict[str, Any]:
         """Generate a complete episode from start to finish."""
         db = get_db_session()
         
@@ -214,15 +219,16 @@ class EpisodeGenerationService:
             
             # Step 2: Get recent articles
             logger.info("Fetching recent articles")
-            articles = await self.news_feed_service.get_recent_articles(group_id)
+            import asyncio
+            articles = asyncio.run(self.news_feed_service.get_recent_articles(group_id))
             if not articles:
                 raise ValueError("No recent articles found")
             
             # Step 3: Generate script
             logger.info("Generating podcast script")
-            script_result = await self.text_generation_service.generate_script(
+            script_result = asyncio.run(self.text_generation_service.generate_script(
                 group_id, articles, target_duration=75
-            )
+            ))
             script = script_result["script"]
             
             # Step 4: Create episode record
@@ -238,9 +244,9 @@ class EpisodeGenerationService:
             
             # Step 5: Generate metadata
             logger.info("Generating episode metadata")
-            metadata_result = await self.writer_service.generate_metadata(
+            metadata_result = asyncio.run(self.writer_service.generate_metadata(
                 episode.id, script, group_id
-            )
+            ))
             metadata_data = metadata_result["metadata"]
             
             # Create metadata record
@@ -254,9 +260,9 @@ class EpisodeGenerationService:
             # Step 6: Generate audio
             logger.info("Generating audio")
             presenter_ids = [p.id for p in group.presenters]
-            audio_result = await self.presenter_service.generate_audio(
+            audio_result = asyncio.run(self.presenter_service.generate_audio(
                 episode.id, script, presenter_ids
-            )
+            ))
             
             # Update episode status
             episode.status = EpisodeStatus.VOICED
@@ -265,11 +271,11 @@ class EpisodeGenerationService:
             # Step 7: Publish episode (optional - can be done later)
             logger.info("Publishing episode")
             try:
-                publish_result = await self.publishing_service.publish_episode(
+                publish_result = asyncio.run(self.publishing_service.publish_episode(
                     episode.id,
                     platforms=["anchor"],  # Default platform
                     credentials={}  # Would need actual credentials
-                )
+                ))
                 episode.status = EpisodeStatus.PUBLISHED
                 db.commit()
             except Exception as e:

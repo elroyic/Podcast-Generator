@@ -278,7 +278,19 @@ async def generate_episode(
     """Generate a complete episode for a podcast group."""
     
     # Forward request to AI Overseer service
-    return await call_service("ai-overseer", "POST", "/generate-episode", json=request.dict())
+    # Convert UUID to string for JSON serialization
+    request_dict = request.dict()
+    logger.info(f"Original request_dict: {request_dict}")
+    
+    # Convert all UUID fields to strings
+    for key, value in request_dict.items():
+        if hasattr(value, '__class__') and 'UUID' in str(value.__class__):
+            request_dict[key] = str(value)
+            logger.info(f"Converted {key} from UUID to string: {request_dict[key]}")
+    
+    logger.info(f"Final request_dict: {request_dict}")
+    
+    return await call_service("ai-overseer", "POST", "/generate-episode", json=request_dict)
 
 
 @app.get("/api/episodes", response_model=List[EpisodeSchema])
