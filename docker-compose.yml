@@ -21,8 +21,6 @@ services:
   # Redis for Celery
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
@@ -35,6 +33,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -47,11 +46,13 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # AI Overseer Service
   ai-overseer:
     build: ./services/ai-overseer
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -64,11 +65,13 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # News Feed Service
   news-feed:
     build: ./services/news-feed
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
     depends_on:
@@ -78,11 +81,13 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Text Generation Service
   text-generation:
     build: ./services/text-generation
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -95,11 +100,13 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Writer Service
   writer:
     build: ./services/writer
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -112,11 +119,13 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Presenter Service
   presenter:
     build: ./services/presenter
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
     depends_on:
@@ -126,11 +135,13 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Publishing Service
   publishing:
     build: ./services/publishing
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
     depends_on:
@@ -140,12 +151,11 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Ollama for local LLM inference
   ollama:
     image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     environment:
@@ -163,6 +173,7 @@ services:
     build: ./services/ai-overseer
     command: celery -A app.celery worker --loglevel=info
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -175,12 +186,14 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
   # Celery Beat (Scheduler)
   celery-beat:
     build: ./services/ai-overseer
     command: celery -A app.celery beat --loglevel=info
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -193,6 +206,7 @@ services:
         condition: service_started
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
 
 volumes:
   postgres_data:

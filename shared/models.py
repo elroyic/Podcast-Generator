@@ -71,7 +71,7 @@ class PodcastGroup(Base):
     tags = Column(ARRAY(String))
     keywords = Column(ARRAY(String))
     schedule = Column(String(100))  # cron expression
-    status = Column(SQLEnum(PodcastGroupStatus), default=PodcastGroupStatus.ACTIVE)
+    status = Column(SQLEnum(PodcastGroupStatus, native_enum=False), default=PodcastGroupStatus.ACTIVE)
     writer_id = Column(PGUUID(as_uuid=True), ForeignKey('writers.id'))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -125,7 +125,7 @@ class NewsFeed(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     source_url = Column(String(500), nullable=False)
     name = Column(String(255))
-    type = Column(SQLEnum(FeedType), nullable=False)
+    type = Column(SQLEnum(FeedType, native_enum=False), nullable=False)
     last_fetched = Column(DateTime(timezone=True))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -160,11 +160,11 @@ class Episode(Base):
     group_id = Column(PGUUID(as_uuid=True), ForeignKey('podcast_groups.id'), nullable=False)
     script = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    status = Column(SQLEnum(EpisodeStatus), default=EpisodeStatus.DRAFT)
+    status = Column(SQLEnum(EpisodeStatus, native_enum=False), default=EpisodeStatus.DRAFT)
 
     # Relationships
     podcast_group = relationship("PodcastGroup", back_populates="episodes")
-    metadata = relationship("EpisodeMetadata", back_populates="episode", uselist=False)
+    episode_metadata = relationship("EpisodeMetadata", back_populates="episode", uselist=False)
     audio_file = relationship("AudioFile", back_populates="episode", uselist=False)
     articles = relationship("Article", secondary=episode_article_link, back_populates="episodes")
 
@@ -184,7 +184,7 @@ class EpisodeMetadata(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    episode = relationship("Episode", back_populates="metadata")
+    episode = relationship("Episode", back_populates="episode_metadata")
 
 
 class AudioFile(Base):

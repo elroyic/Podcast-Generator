@@ -2,6 +2,7 @@
 Writer Service - Generates episode metadata using Ollama.
 """
 import logging
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 from uuid import UUID
@@ -21,8 +22,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Writer Service", version="1.0.0")
 
 # Configuration
-OLLAMA_BASE_URL = "http://ollama:11434"
-DEFAULT_MODEL = "llama3.1"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
 
 
 class MetadataGenerationRequest(BaseModel):
