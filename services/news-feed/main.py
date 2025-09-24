@@ -70,10 +70,79 @@ class NewsFeedProcessor:
     
     @staticmethod
     async def fetch_mcp_feed(feed_url: str) -> List[dict]:
-        """Fetch and parse MCP feed (placeholder implementation)."""
-        # TODO: Implement MCP feed parsing
-        # For now, treat as RSS
-        return await NewsFeedProcessor.fetch_rss_feed(feed_url)
+        """Fetch and parse MCP feed."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(feed_url)
+                response.raise_for_status()
+                
+                # Parse MCP feed (Model Context Protocol)
+                # MCP feeds typically return JSON with structured data
+                try:
+                    mcp_data = response.json()
+                    articles = []
+                    
+                    # Handle different MCP feed formats
+                    if isinstance(mcp_data, dict):
+                        # Check for common MCP feed structures
+                        if "items" in mcp_data:
+                            items = mcp_data["items"]
+                        elif "articles" in mcp_data:
+                            items = mcp_data["articles"]
+                        elif "data" in mcp_data:
+                            items = mcp_data["data"]
+                        else:
+                            # Try to extract articles from the root object
+                            items = [mcp_data] if mcp_data else []
+                    elif isinstance(mcp_data, list):
+                        items = mcp_data
+                    else:
+                        logger.warning(f"Unexpected MCP feed format: {type(mcp_data)}")
+                        return []
+                    
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                            
+                        article = {
+                            "title": item.get("title", item.get("headline", "")),
+                            "link": item.get("url", item.get("link", "")),
+                            "summary": item.get("summary", item.get("description", item.get("excerpt", ""))),
+                            "content": item.get("content", item.get("body", "")),
+                            "publish_date": None
+                        }
+                        
+                        # Parse publish date from various formats
+                        pub_date = item.get("published_at", item.get("date", item.get("created_at")))
+                        if pub_date:
+                            try:
+                                from datetime import datetime
+                                if isinstance(pub_date, str):
+                                    # Try different date formats
+                                    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S"]:
+                                        try:
+                                            article["publish_date"] = datetime.strptime(pub_date, fmt)
+                                            break
+                                        except ValueError:
+                                            continue
+                                elif isinstance(pub_date, (int, float)):
+                                    # Unix timestamp
+                                    article["publish_date"] = datetime.fromtimestamp(pub_date)
+                            except Exception as e:
+                                logger.warning(f"Could not parse date {pub_date}: {e}")
+                        
+                        articles.append(article)
+                    
+                    return articles
+                    
+                except ValueError as e:
+                    logger.error(f"Error parsing MCP JSON feed {feed_url}: {e}")
+                    # Fallback to RSS parsing
+                    return await NewsFeedProcessor.fetch_rss_feed(feed_url)
+                
+        except Exception as e:
+            logger.error(f"Error fetching MCP feed {feed_url}: {e}")
+            return []
 
 
 # API Endpoints

@@ -2,6 +2,7 @@
 Publishing Service - Handles publishing episodes to podcast hosting platforms.
 """
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -136,19 +137,41 @@ class PlatformPublisher:
         try:
             logger.info("Publishing to local podcast host")
             
-            # Simulate processing time
-            await asyncio.sleep(1)
+            episode_id = episode_data['episode_id']
+            
+            # Store the episode data in local storage
+            episode_dir = self.file_manager.storage_path / "episodes" / str(episode_id)
+            episode_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create episode metadata file
+            metadata_file = episode_dir / "metadata.json"
+            async with aiofiles.open(metadata_file, 'w') as f:
+                await f.write(json.dumps(episode_data, indent=2, default=str))
+            
+            # Ensure audio file is accessible
+            audio_url = episode_data.get('audio_url', '')
+            if not audio_url.startswith('http'):
+                # Local file, ensure it's in the right location
+                audio_filename = f"audio.{episode_data.get('format', 'wav')}"
+                audio_path = episode_dir / audio_filename
+                
+                if not audio_path.exists() and os.path.exists(audio_url):
+                    # Copy audio file to storage
+                    shutil.copy2(audio_url, audio_path)
+                    audio_url = f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/{audio_filename}"
             
             # Generate local podcast feed URL
-            episode_id = episode_data['episode_id']
             local_url = f"{LOCAL_SERVER_URL}/podcast/episodes/{episode_id}"
+            
+            logger.info(f"Successfully published episode {episode_id} to local host")
             
             # Return response
             return {
                 "platform": "local_podcast_host",
                 "external_id": f"local_{episode_id}",
                 "public_url": local_url,
-                "status": "published"
+                "status": "published",
+                "audio_url": audio_url
             }
             
         except Exception as e:
@@ -168,12 +191,24 @@ class PlatformPublisher:
         try:
             logger.info("Publishing to local RSS feed")
             
-            # Simulate processing time
-            await asyncio.sleep(1)
+            episode_id = episode_data['episode_id']
+            
+            # Create RSS feed directory
+            rss_dir = self.file_manager.storage_path / "rss"
+            rss_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate RSS feed content
+            rss_content = self._generate_rss_feed(episode_data)
+            
+            # Save RSS feed file
+            rss_file = rss_dir / f"episode_{episode_id}.xml"
+            async with aiofiles.open(rss_file, 'w') as f:
+                await f.write(rss_content)
             
             # Generate local RSS feed URL
-            episode_id = episode_data['episode_id']
             rss_url = f"{LOCAL_SERVER_URL}/rss/episodes/{episode_id}"
+            
+            logger.info(f"Successfully published RSS feed for episode {episode_id}")
             
             # Return response
             return {
@@ -191,6 +226,48 @@ class PlatformPublisher:
                 "error": str(e)
             }
     
+    def _generate_rss_feed(self, episode_data: Dict[str, Any]) -> str:
+        """Generate RSS feed XML content."""
+        episode_id = episode_data['episode_id']
+        title = episode_data.get('title', 'Untitled Episode')
+        description = episode_data.get('description', 'No description')
+        audio_url = episode_data.get('audio_url', '')
+        duration = episode_data.get('duration_seconds', 0)
+        file_size = episode_data.get('file_size_bytes', 0)
+        pub_date = episode_data.get('created_at', datetime.utcnow())
+        
+        # Format publish date for RSS
+        if isinstance(pub_date, str):
+            pub_date = datetime.fromisoformat(pub_date.replace('Z', '+00:00'))
+        elif not isinstance(pub_date, datetime):
+            pub_date = datetime.utcnow()
+        
+        rss_date = pub_date.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        
+        rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Local Podcast - {title}</title>
+    <description>{description}</description>
+    <link>{LOCAL_SERVER_URL}</link>
+    <language>en</language>
+    <pubDate>{rss_date}</pubDate>
+    <lastBuildDate>{rss_date}</lastBuildDate>
+    
+    <item>
+      <title>{title}</title>
+      <description><![CDATA[{description}]]></description>
+      <link>{LOCAL_SERVER_URL}/episodes/{episode_id}</link>
+      <guid>{LOCAL_SERVER_URL}/episodes/{episode_id}</guid>
+      <pubDate>{rss_date}</pubDate>
+      <enclosure url="{audio_url}" type="audio/wav" length="{file_size}"/>
+      <itunes:duration>{duration}</itunes:duration>
+    </item>
+  </channel>
+</rss>"""
+        
+        return rss_content
+    
     async def publish_to_local_directory(
         self,
         episode_data: Dict[str, Any],
@@ -200,12 +277,42 @@ class PlatformPublisher:
         try:
             logger.info("Publishing to local directory")
             
-            # Simulate processing time
-            await asyncio.sleep(1)
+            episode_id = episode_data['episode_id']
+            
+            # Create directory listing
+            directory_dir = self.file_manager.storage_path / "directory"
+            directory_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate directory entry
+            directory_entry = {
+                "episode_id": episode_id,
+                "title": episode_data.get('title', 'Untitled Episode'),
+                "description": episode_data.get('description', 'No description'),
+                "audio_url": episode_data.get('audio_url', ''),
+                "duration_seconds": episode_data.get('duration_seconds', 0),
+                "file_size_bytes": episode_data.get('file_size_bytes', 0),
+                "format": episode_data.get('format', 'wav'),
+                "created_at": episode_data.get('created_at', datetime.utcnow().isoformat()),
+                "tags": episode_data.get('tags', []),
+                "keywords": episode_data.get('keywords', []),
+                "category": episode_data.get('category', 'General'),
+                "subcategory": episode_data.get('subcategory', ''),
+                "language": episode_data.get('language', 'en'),
+                "country": episode_data.get('country', 'US')
+            }
+            
+            # Save directory entry
+            entry_file = directory_dir / f"episode_{episode_id}.json"
+            async with aiofiles.open(entry_file, 'w') as f:
+                await f.write(json.dumps(directory_entry, indent=2, default=str))
+            
+            # Update main directory index
+            await self._update_directory_index(directory_dir, directory_entry)
             
             # Generate local directory URL
-            episode_id = episode_data['episode_id']
             directory_url = f"{LOCAL_SERVER_URL}/episodes/{episode_id}"
+            
+            logger.info(f"Successfully published episode {episode_id} to local directory")
             
             # Return response
             return {
@@ -222,6 +329,48 @@ class PlatformPublisher:
                 "status": "failed",
                 "error": str(e)
             }
+    
+    async def _update_directory_index(self, directory_dir: Path, entry: Dict[str, Any]):
+        """Update the main directory index with new episode."""
+        index_file = directory_dir / "index.json"
+        
+        try:
+            # Load existing index
+            if index_file.exists():
+                async with aiofiles.open(index_file, 'r') as f:
+                    content = await f.read()
+                    index_data = json.loads(content)
+            else:
+                index_data = {"episodes": [], "last_updated": None}
+            
+            # Add or update episode entry
+            episode_id = entry["episode_id"]
+            existing_index = -1
+            for i, ep in enumerate(index_data["episodes"]):
+                if ep["episode_id"] == episode_id:
+                    existing_index = i
+                    break
+            
+            if existing_index >= 0:
+                index_data["episodes"][existing_index] = entry
+            else:
+                index_data["episodes"].append(entry)
+            
+            # Sort by creation date (newest first)
+            index_data["episodes"].sort(
+                key=lambda x: x.get("created_at", ""), 
+                reverse=True
+            )
+            
+            # Update timestamp
+            index_data["last_updated"] = datetime.utcnow().isoformat()
+            
+            # Save updated index
+            async with aiofiles.open(index_file, 'w') as f:
+                await f.write(json.dumps(index_data, indent=2, default=str))
+                
+        except Exception as e:
+            logger.error(f"Error updating directory index: {e}")
     
     async def publish_to_platform(
         self,
