@@ -14,7 +14,6 @@ The application follows a microservices architecture with the following services
 - **Publishing Service** (Port 8005): Publishing to podcast hosting platforms
 - **AI Overseer Service** (Port 8006): Central orchestrator and scheduler
 
-
 ## Prerequisites
 
 - Docker and Docker Compose
