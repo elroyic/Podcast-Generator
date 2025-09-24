@@ -170,18 +170,6 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
-      - storage_data:/app/storage
-
-  # Nginx for serving static files and podcast content
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - storage_data:/app/storage
-    depends_on:
-      - podcast-host
 
   # Ollama for local LLM inference
   ollama:
