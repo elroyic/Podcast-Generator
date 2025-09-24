@@ -394,7 +394,7 @@ async def test_metadata_generation(
         result = await metadata_generator.generate_episode_metadata(request, test_group)
         
         return {
-            "generated_metadata": result.metadata.dict(),
+            "generated_metadata": result.episode_metadata.dict(),
             "generation_metadata": result.generation_metadata,
             "timestamp": datetime.utcnow().isoformat()
         }
