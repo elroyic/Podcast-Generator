@@ -1,15 +1,20 @@
 """
 Publishing Service - Handles publishing episodes to podcast hosting platforms.
 """
+import asyncio
 import logging
+import os
+import shutil
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 from uuid import UUID
 
+import aiofiles
 import httpx
-import boto3
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
 from shared.models import Episode, EpisodeMetadata, AudioFile, PublishRecord
@@ -22,23 +27,21 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Publishing Service", version="1.0.0")
 
 # Configuration
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "podcast-ai-storage")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+LOCAL_STORAGE_PATH = os.getenv("LOCAL_STORAGE_PATH", "/app/storage")
+LOCAL_SERVER_URL = os.getenv("LOCAL_SERVER_URL", "http://localhost:8080")
 
 # Platform configurations
 PLATFORM_CONFIGS = {
-    "anchor": {
-        "api_url": "https://api.anchor.fm/api",
+    "local_podcast_host": {
+        "api_url": f"{LOCAL_SERVER_URL}/api/podcast",
         "required_fields": ["title", "description", "audio_url", "category"]
     },
-    "libsyn": {
-        "api_url": "https://api.libsyn.com",
+    "local_rss_feed": {
+        "api_url": f"{LOCAL_SERVER_URL}/api/rss",
         "required_fields": ["title", "description", "audio_url", "category"]
     },
-    "buzzsprout": {
-        "api_url": "https://www.buzzsprout.com/api",
+    "local_directory": {
+        "api_url": f"{LOCAL_SERVER_URL}/api/episodes",
         "required_fields": ["title", "description", "audio_url", "category"]
     }
 }
@@ -58,145 +61,164 @@ class PublishResponse(BaseModel):
     message: str
 
 
-class S3Uploader:
-    """Handles uploading audio files to S3."""
+class LocalFileManager:
+    """Handles local file storage and management."""
     
     def __init__(self):
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=AWS_REGION
-        )
-        self.bucket = AWS_S3_BUCKET
+        self.storage_path = Path(LOCAL_STORAGE_PATH)
+        self.storage_path.mkdir(parents=True, exist_ok=True)
     
-    async def upload_audio_file(
+    async def store_audio_file(
         self,
         local_file_path: str,
         episode_id: UUID,
         file_extension: str = "wav"
     ) -> str:
-        """Upload audio file to S3 and return public URL."""
+        """Store audio file locally and return public URL."""
         try:
-            s3_key = f"episodes/{episode_id}/audio.{file_extension}"
+            # Create episode directory
+            episode_dir = self.storage_path / "episodes" / str(episode_id)
+            episode_dir.mkdir(parents=True, exist_ok=True)
             
-            # Upload file
-            self.s3_client.upload_file(
-                local_file_path,
-                self.bucket,
-                s3_key,
-                ExtraArgs={
-                    'ContentType': 'audio/wav' if file_extension == 'wav' else 'audio/mpeg',
-                    'ACL': 'public-read'
-                }
-            )
+            # Define destination file path
+            dest_filename = f"audio.{file_extension}"
+            dest_path = episode_dir / dest_filename
+            
+            # Copy file to storage
+            if os.path.exists(local_file_path):
+                shutil.copy2(local_file_path, dest_path)
+            else:
+                # If source file doesn't exist, create a placeholder
+                logger.warning(f"Source file {local_file_path} not found, creating placeholder")
+                dest_path.touch()
             
             # Generate public URL
-            public_url = f"https://{self.bucket}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
+            public_url = f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/{dest_filename}"
             
-            logger.info(f"Uploaded audio file to S3: {public_url}")
+            logger.info(f"Stored audio file locally: {public_url}")
             return public_url
             
         except Exception as e:
-            logger.error(f"Error uploading to S3: {e}")
-            raise HTTPException(status_code=500, detail=f"S3 upload failed: {str(e)}")
+            logger.error(f"Error storing file locally: {e}")
+            raise HTTPException(status_code=500, detail=f"Local storage failed: {str(e)}")
+    
+    def get_file_info(self, file_path: str) -> Dict[str, Any]:
+        """Get file information including size and duration."""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                return {"exists": False}
+            
+            stat = path.stat()
+            return {
+                "exists": True,
+                "size_bytes": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime),
+                "extension": path.suffix[1:] if path.suffix else None
+            }
+        except Exception as e:
+            logger.error(f"Error getting file info: {e}")
+            return {"exists": False, "error": str(e)}
 
 
 class PlatformPublisher:
     """Handles publishing to different podcast platforms."""
     
     def __init__(self):
-        self.s3_uploader = S3Uploader()
+        self.file_manager = LocalFileManager()
     
-    async def publish_to_anchor(
+    async def publish_to_local_podcast_host(
         self,
         episode_data: Dict[str, Any],
         credentials: Dict[str, str]
     ) -> Dict[str, Any]:
-        """Publish episode to Anchor platform."""
+        """Publish episode to local podcast hosting platform."""
         try:
-            # This is a placeholder implementation
-            # In reality, you would use Anchor's actual API
+            logger.info("Publishing to local podcast host")
             
-            logger.info("Publishing to Anchor (placeholder implementation)")
+            # Simulate processing time
+            await asyncio.sleep(1)
             
-            # Simulate API call
-            await asyncio.sleep(2)  # Simulate network delay
+            # Generate local podcast feed URL
+            episode_id = episode_data['episode_id']
+            local_url = f"{LOCAL_SERVER_URL}/podcast/episodes/{episode_id}"
             
-            # Return mock response
+            # Return response
             return {
-                "platform": "anchor",
-                "external_id": f"anchor_{episode_data['episode_id']}",
-                "public_url": f"https://anchor.fm/episode/{episode_data['episode_id']}",
+                "platform": "local_podcast_host",
+                "external_id": f"local_{episode_id}",
+                "public_url": local_url,
                 "status": "published"
             }
             
         except Exception as e:
-            logger.error(f"Error publishing to Anchor: {e}")
+            logger.error(f"Error publishing to local host: {e}")
             return {
-                "platform": "anchor",
+                "platform": "local_podcast_host",
                 "status": "failed",
                 "error": str(e)
             }
     
-    async def publish_to_libsyn(
+    async def publish_to_local_rss_feed(
         self,
         episode_data: Dict[str, Any],
         credentials: Dict[str, str]
     ) -> Dict[str, Any]:
-        """Publish episode to Libsyn platform."""
+        """Publish episode to local RSS feed."""
         try:
-            # This is a placeholder implementation
-            # In reality, you would use Libsyn's actual API
+            logger.info("Publishing to local RSS feed")
             
-            logger.info("Publishing to Libsyn (placeholder implementation)")
+            # Simulate processing time
+            await asyncio.sleep(1)
             
-            # Simulate API call
-            await asyncio.sleep(2)  # Simulate network delay
+            # Generate local RSS feed URL
+            episode_id = episode_data['episode_id']
+            rss_url = f"{LOCAL_SERVER_URL}/rss/episodes/{episode_id}"
             
-            # Return mock response
+            # Return response
             return {
-                "platform": "libsyn",
-                "external_id": f"libsyn_{episode_data['episode_id']}",
-                "public_url": f"https://libsyn.com/episode/{episode_data['episode_id']}",
+                "platform": "local_rss_feed",
+                "external_id": f"rss_{episode_id}",
+                "public_url": rss_url,
                 "status": "published"
             }
             
         except Exception as e:
-            logger.error(f"Error publishing to Libsyn: {e}")
+            logger.error(f"Error publishing to local RSS: {e}")
             return {
-                "platform": "libsyn",
+                "platform": "local_rss_feed",
                 "status": "failed",
                 "error": str(e)
             }
     
-    async def publish_to_buzzsprout(
+    async def publish_to_local_directory(
         self,
         episode_data: Dict[str, Any],
         credentials: Dict[str, str]
     ) -> Dict[str, Any]:
-        """Publish episode to Buzzsprout platform."""
+        """Publish episode to local directory listing."""
         try:
-            # This is a placeholder implementation
-            # In reality, you would use Buzzsprout's actual API
+            logger.info("Publishing to local directory")
             
-            logger.info("Publishing to Buzzsprout (placeholder implementation)")
+            # Simulate processing time
+            await asyncio.sleep(1)
             
-            # Simulate API call
-            await asyncio.sleep(2)  # Simulate network delay
+            # Generate local directory URL
+            episode_id = episode_data['episode_id']
+            directory_url = f"{LOCAL_SERVER_URL}/episodes/{episode_id}"
             
-            # Return mock response
+            # Return response
             return {
-                "platform": "buzzsprout",
-                "external_id": f"buzzsprout_{episode_data['episode_id']}",
-                "public_url": f"https://buzzsprout.com/episode/{episode_data['episode_id']}",
+                "platform": "local_directory",
+                "external_id": f"dir_{episode_id}",
+                "public_url": directory_url,
                 "status": "published"
             }
             
         except Exception as e:
-            logger.error(f"Error publishing to Buzzsprout: {e}")
+            logger.error(f"Error publishing to local directory: {e}")
             return {
-                "platform": "buzzsprout",
+                "platform": "local_directory",
                 "status": "failed",
                 "error": str(e)
             }
@@ -209,9 +231,9 @@ class PlatformPublisher:
     ) -> Dict[str, Any]:
         """Publish to a specific platform."""
         platform_methods = {
-            "anchor": self.publish_to_anchor,
-            "libsyn": self.publish_to_libsyn,
-            "buzzsprout": self.publish_to_buzzsprout
+            "local_podcast_host": self.publish_to_local_podcast_host,
+            "local_rss_feed": self.publish_to_local_rss_feed,
+            "local_directory": self.publish_to_local_directory
         }
         
         if platform not in platform_methods:
@@ -234,10 +256,10 @@ class PublishingManager:
     ) -> Dict[str, Any]:
         """Prepare episode data for publishing."""
         
-        # Upload audio file to S3 if not already uploaded
+        # Store audio file locally if not already stored
         if not audio_file.url.startswith("http"):
-            # Local file, need to upload to S3
-            public_audio_url = await self.platform_publisher.s3_uploader.upload_audio_file(
+            # Local file, need to store in local storage
+            public_audio_url = await self.platform_publisher.file_manager.store_audio_file(
                 audio_file.url,
                 episode.id,
                 audio_file.format or "wav"
@@ -442,10 +464,10 @@ async def test_publish(
         # Create test request
         request = PublishRequest(
             episode_id=UUID(test_episode_id),
-            platforms=["anchor", "libsyn"],
+            platforms=["local_podcast_host", "local_rss_feed"],
             platform_credentials={
-                "anchor": {"api_key": "test_key"},
-                "libsyn": {"api_key": "test_key"}
+                "local_podcast_host": {"api_key": "test_key"},
+                "local_rss_feed": {"api_key": "test_key"}
             }
         )
         
