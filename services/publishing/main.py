@@ -1,15 +1,20 @@
 """
 Publishing Service - Handles publishing episodes to podcast hosting platforms.
 """
+import asyncio
 import logging
+import os
+import shutil
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from uuid import UUID
 
 import httpx
-import boto3
+from minio import Minio
+from minio.error import S3Error
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
 from shared.models import Episode, EpisodeMetadata, AudioFile, PublishRecord
@@ -22,10 +27,11 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Publishing Service", version="1.0.0")
 
 # Configuration
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "podcast-ai-storage")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "podcast-storage")
+FILE_SERVER_URL = os.getenv("FILE_SERVER_URL", "http://localhost:8080")
 
 # Platform configurations
 PLATFORM_CONFIGS = {
@@ -58,17 +64,32 @@ class PublishResponse(BaseModel):
     message: str
 
 
-class S3Uploader:
-    """Handles uploading audio files to S3."""
+class LocalFileUploader:
+    """Handles uploading audio files to local storage (MinIO + file server)."""
     
     def __init__(self):
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-            region_name=AWS_REGION
+        # Initialize MinIO client
+        self.minio_client = Minio(
+            MINIO_ENDPOINT.replace("http://", "").replace("https://", ""),
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            secure=MINIO_ENDPOINT.startswith("https://")
         )
-        self.bucket = AWS_S3_BUCKET
+        self.bucket = MINIO_BUCKET
+        self.file_server_url = FILE_SERVER_URL
+        
+        # Ensure bucket exists
+        self._ensure_bucket_exists()
+    
+    def _ensure_bucket_exists(self):
+        """Ensure the MinIO bucket exists."""
+        try:
+            if not self.minio_client.bucket_exists(self.bucket):
+                self.minio_client.make_bucket(self.bucket)
+                logger.info(f"Created bucket: {self.bucket}")
+        except S3Error as e:
+            logger.error(f"Error creating bucket: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to create bucket: {str(e)}")
     
     async def upload_audio_file(
         self,
@@ -76,37 +97,48 @@ class S3Uploader:
         episode_id: UUID,
         file_extension: str = "wav"
     ) -> str:
-        """Upload audio file to S3 and return public URL."""
+        """Upload audio file to MinIO and return public URL."""
         try:
-            s3_key = f"episodes/{episode_id}/audio.{file_extension}"
+            # Generate object key
+            object_key = f"episodes/{episode_id}/audio.{file_extension}"
             
-            # Upload file
-            self.s3_client.upload_file(
-                local_file_path,
+            # Determine content type
+            content_type = 'audio/wav' if file_extension == 'wav' else 'audio/mpeg'
+            
+            # Upload file to MinIO
+            self.minio_client.fput_object(
                 self.bucket,
-                s3_key,
-                ExtraArgs={
-                    'ContentType': 'audio/wav' if file_extension == 'wav' else 'audio/mpeg',
-                    'ACL': 'public-read'
-                }
+                object_key,
+                local_file_path,
+                content_type=content_type
             )
             
-            # Generate public URL
-            public_url = f"https://{self.bucket}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
+            # Copy file to file server directory for direct HTTP access
+            file_server_path = f"/usr/share/nginx/html/{object_key}"
+            os.makedirs(os.path.dirname(file_server_path), exist_ok=True)
+            shutil.copy2(local_file_path, file_server_path)
             
-            logger.info(f"Uploaded audio file to S3: {public_url}")
+            # Generate public URL
+            public_url = f"{self.file_server_url}/{object_key}"
+            
+            logger.info(f"Uploaded audio file to local storage: {public_url}")
             return public_url
             
         except Exception as e:
-            logger.error(f"Error uploading to S3: {e}")
-            raise HTTPException(status_code=500, detail=f"S3 upload failed: {str(e)}")
+            logger.error(f"Error uploading to local storage: {e}")
+            raise HTTPException(status_code=500, detail=f"Local storage upload failed: {str(e)}")
+    
+    async def get_file_url(self, episode_id: UUID, file_extension: str = "wav") -> str:
+        """Get the public URL for an already uploaded file."""
+        object_key = f"episodes/{episode_id}/audio.{file_extension}"
+        return f"{self.file_server_url}/{object_key}"
 
 
 class PlatformPublisher:
     """Handles publishing to different podcast platforms."""
     
     def __init__(self):
-        self.s3_uploader = S3Uploader()
+        self.file_uploader = LocalFileUploader()
     
     async def publish_to_anchor(
         self,
@@ -234,10 +266,10 @@ class PublishingManager:
     ) -> Dict[str, Any]:
         """Prepare episode data for publishing."""
         
-        # Upload audio file to S3 if not already uploaded
+        # Upload audio file to local storage if not already uploaded
         if not audio_file.url.startswith("http"):
-            # Local file, need to upload to S3
-            public_audio_url = await self.platform_publisher.s3_uploader.upload_audio_file(
+            # Local file, need to upload to local storage
+            public_audio_url = await self.platform_publisher.file_uploader.upload_audio_file(
                 audio_file.url,
                 episode.id,
                 audio_file.format or "wav"

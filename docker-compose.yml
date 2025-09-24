@@ -133,13 +133,51 @@ services:
     environment:
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=podcast-storage
+      - FILE_SERVER_URL=http://file-server:8080
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      file-server:
+        condition: service_started
     volumes:
       - ./services:/app/services
+
+  # MinIO for local S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Simple file server for serving uploaded files
+  file-server:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - file_storage:/usr/share/nginx/html
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - minio
 
   # Ollama for local LLM inference
   ollama:
@@ -197,3 +235,5 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  minio_data:
+  file_storage:

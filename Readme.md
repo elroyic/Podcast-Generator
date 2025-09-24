@@ -11,7 +11,7 @@ The application follows a microservices architecture with the following services
 - **Text Generation Service** (Port 8002): Script generation using Ollama
 - **Writer Service** (Port 8003): Episode metadata generation using Ollama
 - **Presenter Service** (Port 8004): Text-to-speech using VibeVoice-1.5B
-- **Publishing Service** (Port 8005): Publishing to podcast hosting platforms
+- **Publishing Service** (Port 8005): Publishing to podcast hosting platforms (uses local storage)
 - **AI Overseer Service** (Port 8006): Central orchestrator and scheduler
 
 ## Prerequisites
@@ -53,6 +53,11 @@ The application follows a microservices architecture with the following services
    - Open http://localhost:8000 in your browser
    - The API Gateway provides the admin dashboard
 
+5. **Access local storage services**:
+   - MinIO Console: http://localhost:9001 (admin/minioadmin)
+   - File Server: http://localhost:8080
+   - Publishing Service: http://localhost:8005
+
 ## Configuration
 
 ### Environment Variables
@@ -62,7 +67,7 @@ Copy `.env.example` to `.env` and configure:
 - `DATABASE_URL`: PostgreSQL connection string
 - `REDIS_URL`: Redis connection string  
 - `OLLAMA_BASE_URL`: Ollama service URL
-- AWS credentials for S3 storage
+- MinIO credentials for local storage
 - Service URLs for local development
 
 ### Database Setup
@@ -80,6 +85,16 @@ The application uses PostgreSQL with the following main entities:
 
 - **Ollama Models**: Install `llama3.1` or similar for text generation
 - **VibeVoice-1.5B**: Will be downloaded automatically by the Presenter service
+
+### Local Storage Setup
+
+The application uses local storage instead of cloud services:
+
+- **MinIO**: S3-compatible object storage for audio files
+- **File Server**: Nginx-based HTTP server for serving files
+- **No Cloud Dependencies**: Everything runs locally
+
+For detailed setup information, see [LOCAL_PUBLISHING_SETUP.md](LOCAL_PUBLISHING_SETUP.md).
 
 ## Usage
 
