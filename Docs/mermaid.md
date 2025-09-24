@@ -6,6 +6,7 @@ Diagram
     PODCAST_GROUP ||--|{ NEWS_FEED_ASSIGNMENT : "assigned to"
     PODCAST_GROUP }|..|{ NEWS_FEED : "consumes"
 
+
     PODCAST_GROUP_PRESENTER }|..|{ PRESENTER : "references"
     EPISODE }|..|{ EPISODE_METADATA : "stores"
     EPISODE }|..|{ AUDIO_FILE : "produces"
