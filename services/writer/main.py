@@ -406,5 +406,4 @@ async def test_metadata_generation(
 
 if __name__ == "__main__":
     import uvicorn
-    from sqlalchemy.orm import Session
     uvicorn.run(app, host="0.0.0.0", port=8003)
