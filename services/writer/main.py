@@ -10,6 +10,7 @@ from uuid import UUID
 import httpx
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
 from shared.models import PodcastGroup, Episode, EpisodeMetadata
