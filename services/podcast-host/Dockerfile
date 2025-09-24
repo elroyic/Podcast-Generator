@@ -11,13 +11,15 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy service code
-COPY . .
+# Copy shared modules and service code
+COPY ../shared /app/shared
+COPY . /app
 
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
-USER app
+# Create storage directory
+RUN mkdir -p /app/storage
 
-EXPOSE 8001
+# Expose port
+EXPOSE 8006
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+# Run the application
+CMD ["python", "main.py"]

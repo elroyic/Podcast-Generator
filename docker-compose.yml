@@ -144,14 +144,32 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
+      - LOCAL_STORAGE_PATH=/app/storage
+      - LOCAL_SERVER_URL=http://nginx:8080
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nginx:
+        condition: service_started
     volumes:
       - ./services:/app/services
       - ./shared:/app/shared
+      - storage_data:/app/storage
+
+  # Local Podcast Host Service
+  podcast-host:
+    build: ./services/podcast-host
+    environment:
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - LOCAL_STORAGE_PATH=/app/storage
+      - LOCAL_SERVER_URL=http://nginx:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services:/app/services
 
   # Ollama for local LLM inference
   ollama:
@@ -211,3 +229,4 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  storage_data:
