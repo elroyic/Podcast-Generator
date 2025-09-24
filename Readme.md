@@ -16,6 +16,7 @@ The application follows a microservices architecture with the following services
 
 ## Prerequisites
 
+
 - Docker and Docker Compose
 - NVIDIA GPU (recommended for VibeVoice model)
 - PostgreSQL database
