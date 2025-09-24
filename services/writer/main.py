@@ -10,6 +10,7 @@ from uuid import UUID
 import httpx
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
 from shared.models import PodcastGroup, Episode, EpisodeMetadata
@@ -405,5 +406,4 @@ async def test_metadata_generation(
 
 if __name__ == "__main__":
     import uvicorn
-    from sqlalchemy.orm import Session
     uvicorn.run(app, host="0.0.0.0", port=8003)

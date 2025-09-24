@@ -50,9 +50,13 @@ async def health_check():
         services_status["celery_workers"] = f"{len(active_workers)} active" if active_workers else "no workers"
         
         # Check database
-        db = next(get_db())
-        db.execute("SELECT 1")
-        services_status["database"] = "healthy"
+        try:
+            db = next(get_db())
+            db.execute("SELECT 1")
+            services_status["database"] = "healthy"
+            db.close()
+        except Exception as e:
+            services_status["database"] = f"error: {str(e)}"
         
     except Exception as e:
         services_status["database"] = f"error: {str(e)}"
@@ -88,7 +92,7 @@ async def generate_episode(
         logger.info(f"Queued episode generation for group {request.group_id} (task: {task.id})")
         
         return GenerationResponse(
-            episode_id=UUID("00000000-0000-0000-0000-000000000000"),  # Will be updated when task completes
+            episode_id=request.group_id,  # Use group_id as temporary episode_id
             status="queued",
             message=f"Episode generation queued with task ID: {task.id}"
         )

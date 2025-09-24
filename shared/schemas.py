@@ -222,7 +222,7 @@ class Episode(EpisodeBase):
     id: UUID
     group_id: UUID
     created_at: datetime
-    metadata: Optional[EpisodeMetadata] = None
+    episode_metadata: Optional[EpisodeMetadata] = None
     audio_file: Optional[AudioFile] = None
     articles: List[Article] = []
 

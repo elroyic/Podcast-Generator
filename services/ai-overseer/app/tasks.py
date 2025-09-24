@@ -130,29 +130,27 @@ def should_generate_episode(group: PodcastGroup) -> bool:
         
         # Get the last episode for this group
         db = get_db_session()
-        last_episode = db.query(Episode).filter(
-            Episode.group_id == group.id,
-            Episode.status == EpisodeStatus.PUBLISHED
-        ).order_by(Episode.created_at.desc()).first()
-        
-        if not last_episode:
-            # No episodes yet, generate first one
-            return True
-        
-        # Check if schedule indicates time for new episode
-        cron = croniter(group.schedule, last_episode.created_at)
-        next_run = cron.get_next(datetime)
-        
-        return datetime.utcnow() >= next_run
-        
-    except Exception as e:
-        logger.error(f"Error checking schedule for group {group.id}: {e}")
-        return False
-    finally:
         try:
+            last_episode = db.query(Episode).filter(
+                Episode.group_id == group.id,
+                Episode.status == EpisodeStatus.PUBLISHED
+            ).order_by(Episode.created_at.desc()).first()
+            
+            if not last_episode:
+                # No episodes yet, generate first one
+                return True
+            
+            # Check if schedule indicates time for new episode
+            cron = croniter(group.schedule, last_episode.created_at)
+            next_run = cron.get_next(datetime)
+            
+            return datetime.utcnow() >= next_run
+            
+        except Exception as e:
+            logger.error(f"Error checking schedule for group {group.id}: {e}")
+            return False
+        finally:
             db.close()
-        except Exception:
-            pass
 
 
 @celery.task
