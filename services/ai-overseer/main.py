@@ -9,9 +9,14 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 
-from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Episode, EpisodeStatus
-from shared.schemas import (
+# Add the shared directory to Python path
+import sys
+import os
+sys.path.append('/app/shared')
+
+from database import get_db, create_tables
+from models import PodcastGroup, Episode, EpisodeStatus
+from schemas import (
     PodcastGroup as PodcastGroupSchema,
     Episode as EpisodeSchema,
     GenerationRequest,
@@ -92,7 +97,7 @@ async def generate_episode(
         logger.info(f"Queued episode generation for group {request.group_id} (task: {task.id})")
         
         return GenerationResponse(
-            episode_id=request.group_id,  # Use group_id as temporary episode_id
+            episode_id=str(request.group_id),  # Convert UUID to string
             status="queued",
             message=f"Episode generation queued with task ID: {task.id}"
         )

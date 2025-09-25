@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Presenter Service (MP3 Simple)", version="1.0.0")
 
 # Configuration
-AUDIO_STORAGE_PATH = os.getenv("AUDIO_STORAGE_PATH", "/tmp/podcast_storage/episodes")
+AUDIO_STORAGE_PATH = os.getenv("AUDIO_STORAGE_PATH", "./generated_episodes")
 SAMPLE_RATE = 22050
 BIT_RATE = 128
 

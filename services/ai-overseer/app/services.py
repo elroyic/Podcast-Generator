@@ -9,8 +9,13 @@ from uuid import UUID
 import httpx
 from sqlalchemy.orm import Session
 
-from shared.database import get_db_session
-from shared.models import PodcastGroup, Article, Episode, EpisodeStatus, EpisodeMetadata, AudioFile
+# Add the shared directory to Python path
+import sys
+import os
+sys.path.append('/app/shared')
+
+from database import get_db_session
+from models import PodcastGroup, Article, Episode, EpisodeStatus, EpisodeMetadata, AudioFile
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +251,7 @@ class EpisodeGenerationService:
             # Create metadata record
             metadata = EpisodeMetadata(
                 episode_id=episode.id,
-                **metadata_data.dict()
+                **metadata_data
             )
             db.add(metadata)
             db.commit()

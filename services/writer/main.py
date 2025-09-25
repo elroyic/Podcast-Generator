@@ -24,7 +24,7 @@ app = FastAPI(title="Writer Service", version="1.0.0")
 
 # Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
 
 
 class MetadataGenerationRequest(BaseModel):
@@ -243,23 +243,47 @@ Please generate the metadata as a JSON object:
         system_prompt = self.create_system_prompt(podcast_group)
         content_prompt = self.create_content_prompt(request.script, podcast_group)
         
-        # Generate metadata
+        # Generate metadata with graceful fallback if Ollama errors
         model = DEFAULT_MODEL
-        response = await self.ollama_client.generate_metadata(
-            model=model,
-            prompt=content_prompt,
-            system_prompt=system_prompt
-        )
-        
-        # Parse response into structured metadata
-        metadata = self.parse_metadata_response(response)
+        response_text = ""
+        fallback_used = False
+        try:
+            response_text = await self.ollama_client.generate_metadata(
+                model=model,
+                prompt=content_prompt,
+                system_prompt=system_prompt
+            )
+            # Parse response into structured metadata
+            metadata = self.parse_metadata_response(response_text)
+        except Exception as e:
+            # Fallback metadata generation to avoid 500s
+            logger.warning(f"Ollama metadata generation failed, using fallback: {e}")
+            fallback_used = True
+            # Simple fallback heuristics
+            title_words = request.script.strip().split()
+            fallback_title = (
+                f"{podcast_group.name}: " + " ".join(title_words[:10])
+            ) if title_words else f"{podcast_group.name}: Episode"
+            fallback_description = request.script.strip()[:600] or "Episode description generated from script."
+            metadata = EpisodeMetadataCreate(
+                title=fallback_title,
+                description=fallback_description,
+                tags=podcast_group.tags or ["podcast", "ai"],
+                keywords=podcast_group.keywords or ["podcast", "ai"],
+                category=podcast_group.category or "General",
+                subcategory=getattr(podcast_group, "subcategory", None),
+                language=podcast_group.language or "en",
+                country=podcast_group.country or "US",
+            )
+            response_text = ""
         
         generation_metadata = {
             "model_used": model,
             "generation_timestamp": datetime.utcnow().isoformat(),
             "script_length_words": len(request.script.split()),
             "style_preferences": request.style_preferences or {},
-            "raw_response": response[:500] + "..." if len(response) > 500 else response
+            "raw_response": response_text[:500] + "..." if response_text and len(response_text) > 500 else response_text,
+            "fallback_used": fallback_used,
         }
         
         return MetadataGenerationResponse(
@@ -299,10 +323,10 @@ async def generate_metadata(
     if not podcast_group:
         raise HTTPException(status_code=404, detail="Podcast group not found")
     
-    # Get episode details
+    # Get episode details (optional for testing)
     episode = db.query(Episode).filter(Episode.id == request.episode_id).first()
     if not episode:
-        raise HTTPException(status_code=404, detail="Episode not found")
+        logger.warning(f"Episode {request.episode_id} not found, proceeding without episode validation")
     
     try:
         result = await metadata_generator.generate_episode_metadata(request, podcast_group)

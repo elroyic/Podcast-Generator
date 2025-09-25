@@ -30,13 +30,14 @@ def generate_episode_for_group(self, group_id: str) -> Dict[str, Any]:
         # Initialize services
         generation_service = EpisodeGenerationService()
         
-        # Generate episode
-        result = generation_service.generate_complete_episode(UUID(group_id))
+        # Generate episode (run async function in sync context)
+        import asyncio
+        result = asyncio.run(generation_service.generate_complete_episode(UUID(group_id)))
         
         logger.info(f"Episode generation completed for group {group_id}")
         return {
             "status": "success",
-            "episode_id": str(result.get("episode_id")),
+            "episode_id": str(result["episode_id"]),
             "message": "Episode generated successfully"
         }
         
@@ -151,6 +152,10 @@ def should_generate_episode(group: PodcastGroup) -> bool:
             return False
         finally:
             db.close()
+            
+    except Exception as e:
+        logger.error(f"Error in should_generate_episode: {e}")
+        return False
 
 
 @celery.task

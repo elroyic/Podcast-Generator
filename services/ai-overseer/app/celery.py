@@ -33,7 +33,7 @@ celery.conf.update(
 celery.conf.beat_schedule = {
     "check-scheduled-groups": {
         "task": "app.tasks.check_scheduled_groups",
-        "schedule": 60.0,  # Every minute
+        "schedule": 7200.0,  # Every 2 hours
     },
     "fetch-news-feeds": {
         "task": "app.tasks.fetch_all_news_feeds",

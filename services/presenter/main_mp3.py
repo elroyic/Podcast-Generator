@@ -52,11 +52,11 @@ def text_to_speech_audio(script: str, duration_seconds: int = 30) -> AudioSegmen
     word_count = len(words)
     natural_duration = max(duration_seconds, word_count / 2.5)
     
-    # Generate base audio with multiple sine waves to simulate speech
-    base_audio = AudioSegment.silent(duration=int(natural_duration * 1000))  # Convert to milliseconds
+    # Generate base audio with multiple sine waves to simulate speech (stereo)
+    base_audio = AudioSegment.silent(duration=int(natural_duration * 1000), channels=2)  # Stereo
     
-    # Create speech-like audio using multiple sine waves
-    speech_audio = AudioSegment.silent(duration=int(natural_duration * 1000))
+    # Create speech-like audio using multiple sine waves (stereo)
+    speech_audio = AudioSegment.silent(duration=int(natural_duration * 1000), channels=2)  # Stereo
     
     # Generate formants (frequency bands that characterize speech)
     formants = [
@@ -83,8 +83,8 @@ def text_to_speech_audio(script: str, duration_seconds: int = 30) -> AudioSegmen
         speech_audio = speech_audio.overlay(combined)
     
     # Add some natural pauses and variations
-    # Create a more dynamic audio by varying the volume over time
-    final_audio = AudioSegment.silent(duration=int(natural_duration * 1000))
+    # Create a more dynamic audio by varying the volume over time (stereo)
+    final_audio = AudioSegment.silent(duration=int(natural_duration * 1000), channels=2)  # Stereo
     
     # Split into chunks and vary volume to simulate speech patterns
     chunk_duration = 500  # 0.5 seconds
@@ -97,7 +97,7 @@ def text_to_speech_audio(script: str, duration_seconds: int = 30) -> AudioSegmen
         
         # Add some silence between "words"
         if i % 2000 == 0:  # Every 2 seconds
-            silence = AudioSegment.silent(duration=100)  # 100ms pause
+            silence = AudioSegment.silent(duration=100, channels=2)  # 100ms pause (stereo)
             final_audio = final_audio + chunk + silence
         else:
             final_audio = final_audio + chunk
@@ -124,12 +124,12 @@ def create_mp3_audio_file(episode_id: UUID, script: str) -> str:
     mp3_filename = f"episode_{episode_id}_audio.mp3"
     mp3_path = os.path.join(AUDIO_STORAGE_PATH, mp3_filename)
     
-    # Export as MP3
+    # Export as stereo MP3
     audio_segment.export(
         mp3_path,
         format="mp3",
         bitrate=f"{BIT_RATE}k",
-        parameters=["-ac", "1"]  # Mono audio
+        parameters=["-ac", "2"]  # Stereo audio
     )
     
     logger.info(f"Created MP3 file: {mp3_path}")
@@ -168,7 +168,7 @@ async def generate_audio(request: AudioGenerationRequest):
             "sample_rate": SAMPLE_RATE,
             "bit_rate": BIT_RATE,
             "audio_format": "mp3",
-            "channels": 1
+            "channels": 2  # Stereo
         }
         
         return AudioGenerationResponse(

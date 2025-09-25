@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 
 import httpx
+import os
 from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -39,6 +40,7 @@ app = FastAPI(title="Podcast AI API Gateway", version="1.0.0")
 
 # Templates for admin interface
 templates = Jinja2Templates(directory="templates")
+PUBLIC_MEDIA_BASE_URL = os.getenv("PUBLIC_MEDIA_BASE_URL", "http://localhost:8090")
 
 # Service URLs
 SERVICE_URLS = {
@@ -68,7 +70,11 @@ async def call_service(service_name: str, method: str, endpoint: str, **kwargs) 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.request(method, url, **kwargs)
             response.raise_for_status()
-            return response.json()
+            try:
+                return response.json()
+            except Exception:
+                # Fallback to raw text if JSON parsing fails
+                return {"status_code": response.status_code, "raw": response.text}
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except Exception as e:
@@ -116,16 +122,150 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
     active_groups = db.query(PodcastGroup).filter(PodcastGroup.status == "active").count()
     total_episodes = db.query(Episode).count()
     
-    # Get recent episodes
-    recent_episodes = db.query(Episode).order_by(Episode.created_at.desc()).limit(5).all()
+    # Get recent episodes and enrich with MP3 availability
+    recent = db.query(Episode).order_by(Episode.created_at.desc()).limit(5).all()
+
+    async def has_mp3(episode_id: str) -> bool:
+        try:
+            # Check via nginx internal network
+            url = f"http://nginx:8080/storage/episodes/{episode_id}/audio.mp3"
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.head(url)
+                return resp.status_code == 200
+        except Exception:
+            return False
+
+    recent_episodes = []
+    for ep in recent:
+        ep_id = str(ep.id)
+        status_value = getattr(ep.status, 'value', str(ep.status))
+        mp3_ok = await has_mp3(ep_id)
+        recent_episodes.append({
+            'id': ep_id,
+            'status': status_value,
+            'created_at': ep.created_at,
+            'has_mp3': mp3_ok,
+            'mp3_url': f"{PUBLIC_MEDIA_BASE_URL}/storage/episodes/{ep_id}/audio.mp3",
+            'listen_url': f"{PUBLIC_MEDIA_BASE_URL}/podcast/episodes/{ep_id}",
+        })
+
+    # Draft episodes queue (outstanding to be voiced)
+    from shared.models import EpisodeStatus
+    drafts = db.query(Episode).filter(Episode.status == EpisodeStatus.DRAFT).order_by(Episode.created_at.desc()).limit(20).all()
+    draft_episodes = []
+    for ep in drafts:
+        ep_id = str(ep.id)
+        group = db.query(PodcastGroup).filter(PodcastGroup.id == ep.group_id).first()
+        draft_episodes.append({
+            'id': ep_id,
+            'group_name': group.name if group else 'Unknown',
+            'created_at': ep.created_at,
+            'voice_action': f"/api/management/voice/{ep_id}",
+        })
+
+    # Podcast groups and assignments
+    groups = db.query(PodcastGroup).filter(PodcastGroup.status == "active").all()
+    groups_info = []
+    for g in groups:
+        presenter_names = [p.name for p in getattr(g, 'presenters', [])]
+        writer = db.query(Writer).filter(Writer.id == g.writer_id).first()
+        groups_info.append({
+            'id': str(g.id),
+            'name': g.name,
+            'presenters': presenter_names,
+            'writer': writer.name if writer else 'Unassigned',
+            'feeds': len(getattr(g, 'news_feeds', [])),
+        })
     
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "total_groups": total_groups,
         "active_groups": active_groups,
         "total_episodes": total_episodes,
-        "recent_episodes": recent_episodes
+        "recent_episodes": recent_episodes,
+        "draft_episodes": draft_episodes,
+        "groups_info": groups_info,
     })
+
+
+# Groups Management Page
+@app.get("/groups", response_class=HTMLResponse)
+async def groups_page(request: Request):
+    """Render the Podcast Groups management UI (data fetched client-side)."""
+    return templates.TemplateResponse("groups.html", {"request": request})
+
+
+# Management endpoints
+@app.get("/api/management/voicing-queue")
+async def get_voicing_queue(db: Session = Depends(get_db)):
+    from shared.models import EpisodeStatus
+    drafts = db.query(Episode).filter(Episode.status == EpisodeStatus.DRAFT).order_by(Episode.created_at.desc()).all()
+    out = []
+    for ep in drafts:
+        group = db.query(PodcastGroup).filter(PodcastGroup.id == ep.group_id).first()
+        out.append({
+            'id': str(ep.id),
+            'created_at': ep.created_at.isoformat() if ep.created_at else None,
+            'group_id': str(ep.group_id),
+            'group_name': group.name if group else 'Unknown'
+        })
+    return { 'count': len(out), 'draft_episodes': out }
+
+
+@app.api_route("/api/management/voice/{episode_id}", methods=["POST", "GET"])
+async def voice_episode(episode_id: UUID, db: Session = Depends(get_db)):
+    """Trigger voicing for an existing draft episode using Presenter service."""
+    ep = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    group = db.query(PodcastGroup).filter(PodcastGroup.id == ep.group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Podcast group not found")
+    presenter_ids = [str(p.id) for p in getattr(group, 'presenters', [])]
+    if not presenter_ids:
+        raise HTTPException(status_code=400, detail="No presenters assigned to this group")
+
+    # Call Presenter
+    payload = {
+        'episode_id': str(episode_id),
+        'script': ep.script or '',
+        'presenter_ids': presenter_ids,
+    }
+    try:
+        result = await call_service('presenter', 'POST', '/generate-audio', json=payload)
+        # Mark episode voiced
+        from shared.models import EpisodeStatus
+        ep.status = EpisodeStatus.VOICED
+        db.commit()
+        return { 'status': 'voiced', 'episode_id': str(episode_id), 'presenter_result': result }
+    except HTTPException as he:
+        # Bubble up underlying detail for visibility
+        try:
+            d = he.detail
+            if isinstance(d, dict):
+                detail = d.get('detail') or d.get('raw') or str(d)
+            else:
+                detail = str(d)
+        except Exception:
+            detail = str(he)
+        raise HTTPException(status_code=he.status_code, detail=f"Voicing failed: {detail}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voicing failed: {str(e)}")
+
+
+@app.post("/api/management/voice-all")
+async def voice_all_drafts(limit: int = 10, db: Session = Depends(get_db)):
+    from shared.models import EpisodeStatus
+    drafts = db.query(Episode).filter(Episode.status == EpisodeStatus.DRAFT).order_by(Episode.created_at.desc()).limit(limit).all()
+    voiced = []
+    failed = []
+    for ep in drafts:
+        try:
+            await voice_episode(ep.id, db)
+            voiced.append(str(ep.id))
+        except Exception as e:
+            failed.append({ 'episode_id': str(ep.id), 'error': str(e) })
+    return { 'voiced': voiced, 'failed': failed }
 
 
 # Podcast Groups API
@@ -278,7 +418,19 @@ async def generate_episode(
     """Generate a complete episode for a podcast group."""
     
     # Forward request to AI Overseer service
-    return await call_service("ai-overseer", "POST", "/generate-episode", json=request.dict())
+    # Convert UUID to string for JSON serialization
+    request_dict = request.dict()
+    logger.info(f"Original request_dict: {request_dict}")
+    
+    # Convert all UUID fields to strings
+    for key, value in request_dict.items():
+        if hasattr(value, '__class__') and 'UUID' in str(value.__class__):
+            request_dict[key] = str(value)
+            logger.info(f"Converted {key} from UUID to string: {request_dict[key]}")
+    
+    logger.info(f"Final request_dict: {request_dict}")
+    
+    return await call_service("ai-overseer", "POST", "/generate-episode", json=request_dict)
 
 
 @app.get("/api/episodes", response_model=List[EpisodeSchema])
