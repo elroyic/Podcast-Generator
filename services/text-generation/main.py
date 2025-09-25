@@ -29,7 +29,7 @@ app = FastAPI(title="Text Generation Service", version="1.0.0")
 
 # Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
 
 
 class ScriptGenerationRequest(BaseModel):
@@ -104,7 +104,7 @@ class ScriptGenerator:
             )
         
         system_prompt = f"""
-You are an expert podcast script writer. Create engaging, conversational podcast content.
+You are an expert audio podcast script writer. Create comprehensive, detailed, and engaging podcast content. 
 
 PODCAST DETAILS:
 - Name: {podcast_group.name}
@@ -124,13 +124,30 @@ STYLE GUIDELINES:
 - Include introductions and conclusions
 - Make content accessible to general audiences
 - Use presenters' names naturally in dialogue
+- PROVIDE COMPREHENSIVE COVERAGE - be thorough and detailed
+- Include in-depth analysis and discussion
+- Add multiple perspectives and viewpoints
+- Expand on key points with examples and explanations
+- Create substantial, meaningful content
 
 FORMAT:
-- Write as a dialogue between presenters
-- Include stage directions in [brackets]
-- Mark speaker changes clearly
+- Write as a dialogue between presenters as if they are speaking to each other. 
+- The presenters are {podcast_group.presenters}
+- Mark speaker changes clearly with the presenters names.
 - Add natural pauses and emphasis
 - Include timing estimates where relevant
+- Create LONG, DETAILED segments with extensive discussion and in depth analysis. 
+- Add comedy to the script and to descriptions of concepts by relating them to real life situations. 
+- Have the {podcast_group.presenters} tell stories about their lives and experiences to add personality and depth to the script.
+- Ensure the script is SUBSTANTIAL and COMPREHENSIVE
+
+LENGTH REQUIREMENTS:
+- Target MINIMUM 1000+ words
+- The script should be at least 10 minutes long.
+- Create detailed, in-depth content
+- Include extensive analysis and discussion
+- Add comprehensive coverage of all topics
+- Provide thorough explanations and examples
 
 Target audience: General listeners interested in {podcast_group.category or 'current events'}
 """
@@ -156,7 +173,7 @@ Published: {article.get('publish_date', 'Unknown date')}
 """)
         
         prompt = f"""
-Create a {target_duration}-minute podcast episode script based on the following news articles and podcast details.
+Create a COMPREHENSIVE {target_duration}-minute podcast episode script based on the following news articles and podcast details.
 
 PODCAST GROUP: {podcast_group.name}
 CATEGORY: {podcast_group.category or 'General News'}
@@ -166,15 +183,21 @@ TAGS: {', '.join(podcast_group.tags or [])}
 NEWS ARTICLES TO DISCUSS:
 {chr(10).join(articles_text)}
 
-REQUIREMENTS:
+CRITICAL REQUIREMENTS:
 1. Create a script that runs approximately {target_duration} minutes when spoken at normal pace
-2. Include engaging introduction and conclusion
-3. Discuss the most interesting and relevant articles
-4. Add natural conversation flow between presenters
-5. Include transitions, reactions, and commentary
-6. Make it entertaining and informative
-7. Use the presenters' personalities and expertise areas
-8. Include call-to-action or sign-off at the end
+2. MINIMUM 1000+ WORDS - this is absolutely essential
+3. Include engaging introduction and conclusion
+4. Discuss ALL articles in detail with comprehensive analysis
+5. Add extensive natural conversation flow between presenters
+6. Include detailed transitions, reactions, and commentary
+7. Make it entertaining and informative with in-depth coverage
+8. Use the presenters' personalities and expertise areas extensively
+9. Include call-to-action or sign-off at the end
+10. PROVIDE THOROUGH, DETAILED ANALYSIS of each topic
+11. Add multiple perspectives and viewpoints on each story
+12. Include extensive examples, explanations, and context
+13. Create substantial, meaningful dialogue between presenters
+14. Ensure comprehensive coverage of all topics
 
 STRUCTURE:
 - Opening (2-3 minutes): Introduction, show overview, presenter greetings
@@ -204,13 +227,33 @@ Please generate the complete script now:
         
         # Determine model to use (could be configured per group in the future)
         model = DEFAULT_MODEL
+        fallback_used = False
         
-        # Generate the script
-        script = await self.ollama_client.generate_script(
-            model=model,
-            prompt=content_prompt,
-            system_prompt=system_prompt
-        )
+        # Generate the script (graceful fallback if Ollama fails)
+        try:
+            script = await self.ollama_client.generate_script(
+                model=model,
+                prompt=content_prompt,
+                system_prompt=system_prompt
+            )
+        except Exception as e:
+            logger.warning(f"Ollama failed to generate script, using fallback: {e}")
+            fallback_used = True
+            # Build a comprehensive script directly from the provided articles and group details
+            parts = []
+            parts.append(f"### [Podcast: {podcast_group.name}]\n")
+            parts.append("[INTRO]\nPresenter 1: Welcome to today's episode. We have a deep dive into the latest developments across technology and AI.\nPresenter 2: We'll explore multiple stories with context, analysis, and practical implications. Let's get started!\n")
+            
+            for idx, article in enumerate(request.article_summaries, start=1):
+                title = article.get("title", "Untitled")
+                summary = article.get("summary", "")
+                content = article.get("content", "")
+                link = article.get("link", "")
+                parts.append(f"\n[Segment {idx}]\nPresenter 1: The story titled '{title}'.\nPresenter 2: Summary: {summary}\nPresenter 1: Let's unpack the details and implications.\nPresenter 2: {content}\nPresenter 1: You can read more here: {link}\n")
+                parts.append("Presenter 2: Key takeaways include broader context, potential risks, and opportunities.\nPresenter 1: Exactly, and we should consider ethical and social impact as well.\n")
+            
+            parts.append("\n[Closing]\nPresenter 1: That wraps up today's comprehensive discussion.\nPresenter 2: Thanks for listening. Subscribe for more deep dives and insights.\n")
+            script = "\n".join(parts)
         
         # Estimate duration (rough calculation: ~150 words per minute)
         word_count = len(script.split())
@@ -225,7 +268,8 @@ Please generate the complete script now:
             "generation_timestamp": datetime.utcnow().isoformat(),
             "articles_processed": len(request.article_summaries),
             "target_duration": request.target_duration_minutes,
-            "style_preferences": request.style_preferences or {}
+            "style_preferences": request.style_preferences or {},
+            "fallback_used": fallback_used
         }
         
         return ScriptGenerationResponse(

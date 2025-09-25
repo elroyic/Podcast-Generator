@@ -1,0 +1,5 @@
+{
+  "model": "llama3.1:latest",
+  "prompt": "Hello, this is a test.",
+  "stream": false
+}

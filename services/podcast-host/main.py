@@ -81,7 +81,7 @@ async def get_episode_info(episode_id: UUID, db: Session = Depends(get_db)):
             id=str(episode.id),
             title=metadata.title if metadata else "Untitled Episode",
             description=metadata.description if metadata else "No description",
-            audio_url=f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/audio.wav",
+            audio_url=f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/audio.mp3",
             published_at=episode.created_at,
             duration_seconds=audio_file.duration_seconds or 0,
             file_size_bytes=audio_file.file_size_bytes or 0
@@ -115,7 +115,7 @@ async def get_episode_rss(episode_id: UUID, db: Session = Depends(get_db)):
         # Generate RSS XML
         title = metadata.title if metadata else "Untitled Episode"
         description = metadata.description if metadata else "No description"
-        audio_url = f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/audio.wav"
+        audio_url = f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/audio.mp3"
         pub_date = episode.created_at.strftime("%a, %d %b %Y %H:%M:%S GMT")
         
         rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -134,7 +134,7 @@ async def get_episode_rss(episode_id: UUID, db: Session = Depends(get_db)):
       <link>{LOCAL_SERVER_URL}/episodes/{episode_id}</link>
       <guid>{LOCAL_SERVER_URL}/episodes/{episode_id}</guid>
       <pubDate>{pub_date}</pubDate>
-      <enclosure url="{audio_url}" type="audio/wav" length="{audio_file.file_size_bytes or 0}"/>
+      <enclosure url="{audio_url}" type="audio/mpeg" length="{audio_file.file_size_bytes or 0}"/>
       <itunes:duration>{audio_file.duration_seconds or 0}</itunes:duration>
     </item>
   </channel>
@@ -172,7 +172,7 @@ async def get_podcast_episode(episode_id: UUID, db: Session = Depends(get_db)):
         
         title = metadata.title if metadata else "Untitled Episode"
         description = metadata.description if metadata else "No description"
-        audio_url = f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/audio.wav"
+        audio_url = f"{LOCAL_SERVER_URL}/storage/episodes/{episode_id}/audio.mp3"
         
         # Generate simple HTML page
         html_content = f"""<!DOCTYPE html>
@@ -199,7 +199,7 @@ async def get_podcast_episode(episode_id: UUID, db: Session = Depends(get_db)):
         </div>
         <p>{description}</p>
         <audio controls>
-            <source src="{audio_url}" type="audio/wav">
+            <source src="{audio_url}" type="audio/mpeg">
             Your browser does not support the audio element.
         </audio>
         <p><a href="{audio_url}" download>Download Audio File</a></p>

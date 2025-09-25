@@ -18,8 +18,8 @@
                     </div>
                     <div class="flex items-center space-x-4">
                         <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
-                        <a href="/api/podcast-groups" class="text-gray-600 hover:text-gray-900">Groups</a>
-                        <a href="/api/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/api/episodes" class="text-gray-600 hover:text-gray-900">Episodes (JSON)</a>
                     </div>
                 </div>
             </div>
@@ -98,17 +98,85 @@
                                     </span>
                                 </div>
                                 <div class="ml-4">
-                                    <div class="text-sm font-medium text-gray-900">Episode {{ episode.id[:8] }}...</div>
-                                    <div class="text-sm text-gray-500">{{ episode.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                                    <div class="text-sm font-medium text-gray-900">Episode {{ episode.id[:8] if episode.id is string else episode.id.hex[:8] }}...</div>
+                                    <div class="text-sm text-gray-500">{{ episode.created_at.strftime('%Y-%m-%d %H:%M') if episode.created_at else '' }}</div>
                                 </div>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <a href="/api/episodes/{{ episode.id }}" class="text-blue-600 hover:text-blue-900">View</a>
+                            <div class="flex items-center space-x-3">
+                                <a href="/api/episodes/{{ episode.id }}" class="text-blue-600 hover:text-blue-900">Script</a>
+                                <span class="text-gray-300">|</span>
+                                {% if episode.has_mp3 %}
+                                <a href="{{ episode.listen_url }}" target="_blank" class="text-green-600 hover:text-green-800">Listen</a>
+                                <span class="text-gray-300">|</span>
+                                <a href="{{ episode.mp3_url }}" target="_blank" class="text-purple-600 hover:text-purple-800">MP3</a>
+                                {% else %}
+                                <span class="inline-flex items-center text-yellow-700"><i class="bi bi-exclamation-triangle-fill mr-1"></i>MP3 missing</span>
+                                {% endif %}
                             </div>
                         </div>
                     </li>
                     {% endfor %}
                 </ul>
+            </div>
+
+            <!-- Voicing Queue -->
+            <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Outstanding Drafts</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Episodes waiting to be voiced</p>
+                </div>
+                <ul class="divide-y divide-gray-200">
+                    {% for ep in draft_episodes %}
+                    <li class="px-4 py-3 flex items-center justify-between">
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">Episode {{ ep.id[:8] }}... • {{ ep.group_name }}</div>
+                            <div class="text-sm text-gray-500">{{ ep.created_at.strftime('%Y-%m-%d %H:%M') if ep.created_at else '' }}</div>
+                        </div>
+                        <div>
+                            <form method="post" action="{{ ep.voice_action }}">
+                                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-3 py-1 rounded">Voice Now</button>
+                            </form>
+                        </div>
+                    </li>
+                    {% else %}
+                    <li class="px-4 py-3 text-sm text-gray-500">No drafts pending.</li>
+                    {% endfor %}
+                </ul>
+                <div class="px-4 py-4">
+                    <form method="post" action="/api/management/voice-all">
+                        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded">Voice All Drafts</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Groups & Assignments -->
+            <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Podcast Groups & Assignments</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Presenters, writer and feeds</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenters</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Writer</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feeds</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for g in groups_info %}
+                            <tr>
+                                <td class="px-4 py-2 text-sm text-gray-900">{{ g.name }}</td>
+                                <td class="px-4 py-2 text-sm text-gray-600">{{ ', '.join(g.presenters) }}</td>
+                                <td class="px-4 py-2 text-sm text-gray-600">{{ g.writer }}</td>
+                                <td class="px-4 py-2 text-sm text-gray-600">{{ g.feeds }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Quick Actions -->
