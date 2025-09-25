@@ -24,7 +24,7 @@ app = FastAPI(title="Reviewer Service", version="1.0.0")
 
 # Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:latest")
 
 
 class ArticleReview(BaseModel):
@@ -106,24 +106,35 @@ class ArticleReviewer:
 You are an expert news article reviewer and categorizer. Your task is to analyze news articles and provide structured categorization and classification.
 
 REVIEW REQUIREMENTS:
-1. Topic: Main subject area (e.g., "Technology", "Finance", "Politics", "Health", "Sports", "Entertainment", "World News", "Business")
-2. Subject: More specific subject within the topic (e.g., "AI/ML", "Stock Market", "Elections", "Medical Research", "Football", "Movies")
-3. Tags: 3-5 relevant tags for categorization (e.g., "Politics", "Tech", "Finance", "AI", "Trending", "Breaking", "Analysis")
+1. Topic: Identify the main subject area (be creative and specific - don't limit to preset categories)
+2. Subject: Define a more specific subject within the topic (be detailed and precise)
+3. Tags: Generate 3-5 relevant tags for categorization (be creative and comprehensive - include trending topics, themes, and relevant keywords)
 4. Summary: Concise summary of the article (≤500 characters)
 5. Importance Rank: Rate importance from 1-10 (1=low, 10=critical/breaking news)
 
 CATEGORIZATION GUIDELINES:
-- Be consistent with topic and subject classifications
+- Be creative and comprehensive in your categorization
+- Don't limit yourself to preset categories - create new ones as needed
 - Consider global impact and relevance
 - Factor in recency and trending nature
 - Consider audience interest and engagement potential
 - Balance between specificity and broad appeal
+- Include emerging topics and themes
+- Consider cross-cutting issues and interdisciplinary connections
+
+TAGGING GUIDELINES:
+- Create tags that capture the essence of the story
+- Include both broad and specific tags
+- Consider trending topics and hashtags
+- Include geographic, temporal, and thematic tags
+- Add tags for audience segments and interests
+- Include tags for content type (analysis, breaking, opinion, etc.)
 
 OUTPUT FORMAT (JSON):
 {
-    "topic": "Main topic category",
-    "subject": "Specific subject within topic",
-    "tags": ["tag1", "tag2", "tag3", "tag4"],
+    "topic": "Your identified main topic category",
+    "subject": "Your specific subject within topic",
+    "tags": ["your", "creative", "relevant", "tags"],
     "summary": "Concise summary under 500 characters",
     "importance_rank": 8
 }

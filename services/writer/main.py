@@ -24,7 +24,7 @@ app = FastAPI(title="Writer Service", version="1.0.0")
 
 # Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:latest")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:latest")
 
 
 class MetadataGenerationRequest(BaseModel):
