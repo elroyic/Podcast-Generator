@@ -148,6 +148,15 @@ class Article(Base):
     publish_date = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Reviewer enhancement fields
+    fingerprint = Column(String(128))  # SHA-256 hex of source_url|title|published
+    reviewer_type = Column(String(10))  # 'light' | 'heavy'
+    review_tags = Column(ARRAY(String))  # tags assigned by reviewer
+    review_summary = Column(Text)  # concise reviewer summary
+    confidence = Column(Float)  # 0..1 confidence from reviewer
+    processed_at = Column(DateTime(timezone=True))  # when review stored
+    review_metadata = Column(JSON)  # auxiliary metadata (model, fallback, timings, etc.)
+
     # Relationships
     news_feed = relationship("NewsFeed", back_populates="articles")
     episodes = relationship("Episode", secondary=episode_article_link, back_populates="articles")

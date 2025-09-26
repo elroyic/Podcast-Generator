@@ -92,9 +92,13 @@ class WorkflowOrchestrator:
                         json={"article_id": article["id"], "force_review": False}
                     )
                     if review_response.status_code == 200:
-                        review_results.append(review_response.json())
+                        rr = review_response.json()
+                        review_results.append({
+                            "article": article,
+                            "review": rr.get("review", rr)
+                        })
                 except Exception as e:
-                    logger.warning(f"Failed to review article {article['id']}: {e}")
+                    logger.warning(f"Failed to review article {article.get('id', 'unknown')}: {e}")
             
             logger.info(f"Processed {len(review_results)} articles for group {group_id}")
             return {
@@ -129,24 +133,30 @@ class WorkflowOrchestrator:
             collection_response.raise_for_status()
             collection = collection_response.json()
             
-            # Add feed items to collection
-            for review in review_results:
+            # Add feed items to collection (use original articles)
+            for item in review_results:
+                article = item.get("article", {})
                 await self.http_client.post(
                     f"{COLLECTIONS_SERVICE_URL}/collections/{collection['collection_id']}/items",
                     json={
                         "item_type": "feed",
-                        "content": review["review"],
-                        "metadata": {"source": "ai_overseer"}
+                        "content": {
+                            "title": article.get("title"),
+                            "summary": article.get("summary"),
+                            "link": article.get("link"),
+                            "publish_date": article.get("publish_date")
+                        },
+                        "metadata": {"source": "news_feed_service"}
                     }
                 )
             
             # Add review items to collection
-            for review in review_results:
+            for item in review_results:
                 await self.http_client.post(
                     f"{COLLECTIONS_SERVICE_URL}/collections/{collection['collection_id']}/items",
                     json={
                         "item_type": "review",
-                        "content": review["review"],
+                        "content": item.get("review", {}),
                         "metadata": {"source": "reviewer_service"}
                     }
                 )

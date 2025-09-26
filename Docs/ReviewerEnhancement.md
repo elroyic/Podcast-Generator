@@ -1,6 +1,6 @@
 # Specification – Reviewer Enhancements
 **Version:** 1.3  
-**Author:** [Your Team]  
+**Author:** Elroy Tracey
 **Date:** 2025‑09‑26  
 
 ---

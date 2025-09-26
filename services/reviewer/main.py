@@ -1,6 +1,6 @@
 """
-Reviewer Service - Categorizes and classifies news articles using Qwen3.
-Handles feed processing with queuing (not batching) as specified in the workflow.
+Reviewer Service – Two-tier Light/Heavy orchestration with Redis-backed config and metrics.
+Backwards-compatible with existing /review-article endpoint; now persists review fields on Article.
 """
 import logging
 import os
@@ -9,8 +9,9 @@ from typing import Dict, Any, Optional, List
 from uuid import UUID
 
 import httpx
+import redis
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
@@ -25,6 +26,13 @@ app = FastAPI(title="Reviewer Service", version="1.0.0")
 # Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:latest")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
+# Reviewer defaults (can be overridden via Redis config)
+DEFAULT_CONF_THRESHOLD = float(os.getenv("REVIEWER_CONF_THRESHOLD", "0.85"))
+DEFAULT_LIGHT_MODEL = os.getenv("REVIEWER_LIGHT_MODEL", "qwen2:0.5b")
+DEFAULT_HEAVY_MODEL = os.getenv("REVIEWER_HEAVY_MODEL", "qwen3:4b")
+DEFAULT_HEAVY_ENABLED = os.getenv("REVIEWER_HEAVY_ENABLED", "true").lower() == "true"
 
 
 class ArticleReview(BaseModel):
@@ -35,6 +43,7 @@ class ArticleReview(BaseModel):
     tags: List[str]
     summary: str  # ≤500 characters
     importance_rank: int  # 1-10
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     review_metadata: Dict[str, Any]
 
 
@@ -49,6 +58,40 @@ class ReviewResponse(BaseModel):
     article_id: UUID
     review: ArticleReview
     processing_time_seconds: float
+    reviewer_type: str
+    fallback: bool = False
+
+
+class ReviewerConfig(BaseModel):
+    conf_threshold: float = Field(default=DEFAULT_CONF_THRESHOLD, ge=0.0, le=1.0)
+    heavy_enabled: bool = Field(default=DEFAULT_HEAVY_ENABLED)
+    light_model: str = Field(default=DEFAULT_LIGHT_MODEL)
+    heavy_model: str = Field(default=DEFAULT_HEAVY_MODEL)
+    light_workers: int = Field(default=1, ge=1, le=4)
+
+
+class FeedReviewRequest(BaseModel):
+    feed_id: str
+    title: str
+    url: str
+    content: Optional[str] = None
+    published: Optional[str] = None
+
+
+class MetricsWindow(BaseModel):
+    total_light: int
+    total_heavy: int
+    avg_latency_ms_light: float
+    avg_latency_ms_heavy: float
+    success_rate: float
+    error_rate: float
+    confidence_histogram: Dict[str, int]
+
+
+class MetricsResponse(BaseModel):
+    last_5m: MetricsWindow
+    last_1h: MetricsWindow
+    queue_length: int
 
 
 class OllamaClient:
@@ -99,51 +142,37 @@ class ArticleReviewer:
     
     def __init__(self):
         self.ollama_client = OllamaClient()
+        self.redis = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+        self.config_key = "reviewer:config"
+        self.metrics_prefix = "reviewer:metrics"
+        self.lat_list_light = f"{self.metrics_prefix}:lat:light"
+        self.lat_list_heavy = f"{self.metrics_prefix}:lat:heavy"
+        self.err_list = f"{self.metrics_prefix}:errors"
+        self.conf_hist = f"{self.metrics_prefix}:conf_hist"
+        self.queue_key = "reviewer:queue"
     
     def create_system_prompt(self) -> str:
         """Create system prompt for article review."""
         return """
-You are an expert news article reviewer and categorizer. Your task is to analyze news articles and provide structured categorization and classification.
+You are an expert news article reviewer and categorizer. Analyze the article and output JSON only.
 
 REVIEW REQUIREMENTS:
-1. Topic: Identify the main subject area (be creative and specific - don't limit to preset categories)
-2. Subject: Define a more specific subject within the topic (be detailed and precise)
-3. Tags: Generate 3-5 relevant tags for categorization (be creative and comprehensive - include trending topics, themes, and relevant keywords)
-4. Summary: Concise summary of the article (≤500 characters)
-5. Importance Rank: Rate importance from 1-10 (1=low, 10=critical/breaking news)
+1. topic: Main subject area (specific, creative)
+2. subject: More specific subject within topic
+3. tags: 3-5 relevant tags (diverse, trending keywords)
+4. summary: Concise summary (<= 500 chars)
+5. importance_rank: Integer 1-10 (1=low, 10=critical)
+6. confidence: Float 0.0-1.0 representing confidence in your topic classification
 
-CATEGORIZATION GUIDELINES:
-- Be creative and comprehensive in your categorization
-- Don't limit yourself to preset categories - create new ones as needed
-- Consider global impact and relevance
-- Factor in recency and trending nature
-- Consider audience interest and engagement potential
-- Balance between specificity and broad appeal
-- Include emerging topics and themes
-- Consider cross-cutting issues and interdisciplinary connections
-
-TAGGING GUIDELINES:
-- Create tags that capture the essence of the story
-- Include both broad and specific tags
-- Consider trending topics and hashtags
-- Include geographic, temporal, and thematic tags
-- Add tags for audience segments and interests
-- Include tags for content type (analysis, breaking, opinion, etc.)
-
-OUTPUT FORMAT (JSON):
+OUTPUT STRICTLY JSON (no prose):
 {
-    "topic": "Your identified main topic category",
-    "subject": "Your specific subject within topic",
-    "tags": ["your", "creative", "relevant", "tags"],
-    "summary": "Concise summary under 500 characters",
-    "importance_rank": 8
+  "topic": "...",
+  "subject": "...",
+  "tags": ["..."],
+  "summary": "...",
+  "importance_rank": 7,
+  "confidence": 0.84
 }
-
-IMPORTANCE RANKING CRITERIA:
-- 1-3: Local news, minor updates, routine announcements
-- 4-6: Regional news, moderate impact, industry updates
-- 7-8: National/international news, significant impact, major developments
-- 9-10: Breaking news, critical events, global impact, major policy changes
 """
 
     def create_content_prompt(self, article: Article) -> str:
@@ -194,6 +223,12 @@ Please provide a structured review with topic, subject, tags, summary, and impor
             importance_rank = review_dict.get("importance_rank", 5)
             if not isinstance(importance_rank, int) or importance_rank < 1 or importance_rank > 10:
                 importance_rank = 5
+            confidence_val = review_dict.get("confidence", 0.0)
+            try:
+                confidence = float(confidence_val)
+            except Exception:
+                confidence = 0.0
+            confidence = max(0.0, min(1.0, confidence))
             
             return ArticleReview(
                 article_id=article_id,
@@ -202,6 +237,7 @@ Please provide a structured review with topic, subject, tags, summary, and impor
                 tags=tags,
                 summary=summary,
                 importance_rank=importance_rank,
+                confidence=confidence,
                 review_metadata={
                     "model_used": DEFAULT_MODEL,
                     "review_timestamp": datetime.utcnow().isoformat(),
@@ -219,6 +255,7 @@ Please provide a structured review with topic, subject, tags, summary, and impor
                 tags=["news", "general"],
                 summary="Article review failed - using default categorization",
                 importance_rank=5,
+                confidence=0.0,
                 review_metadata={
                     "model_used": DEFAULT_MODEL,
                     "review_timestamp": datetime.utcnow().isoformat(),
@@ -254,61 +291,160 @@ Please provide a structured review with topic, subject, tags, summary, and impor
     async def review_article(
         self,
         article: Article
-    ) -> ArticleReview:
-        """Review a single article."""
-        
-        logger.info(f"Reviewing article: {article.title[:50]}...")
-        
-        # Create prompts
+    ) -> Dict[str, Any]:
+        """Two-tier review with Light/Heavy based on confidence threshold."""
+        logger.info(f"Reviewing article: {article.title[:80]}...")
+
+        # Build prompts once
         system_prompt = self.create_system_prompt()
         content_prompt = self.create_content_prompt(article)
-        
-        # Generate review with graceful fallback if Ollama errors
-        model = DEFAULT_MODEL
-        response_text = ""
+
+        # Load runtime config
+        cfg = self._load_config()
+
+        timings: Dict[str, float] = {}
+        reviewer_type = "light"
+        fallback_used = False
+        model_used = cfg.light_model
+
+        # LIGHT pass
+        t0 = datetime.utcnow()
         try:
-            response_text = await self.ollama_client.generate_review(
-                model=model,
+            light_resp = await self.ollama_client.generate_review(
+                model=cfg.light_model,
                 prompt=content_prompt,
                 system_prompt=system_prompt
             )
-            # Parse response into structured review
-            review = self.parse_review_response(response_text, article.id)
+            review = self.parse_review_response(light_resp, article.id)
+            timings["light_ms"] = (datetime.utcnow() - t0).total_seconds() * 1000.0
+            self._record_latency("light", timings["light_ms"]) 
+            self._record_confidence(review.confidence)
+            model_used = cfg.light_model
         except Exception as e:
-            # Fallback review generation to avoid 500s
-            logger.warning(f"Ollama review generation failed, using fallback: {e}")
-            # Simple fallback heuristics
-            title_lower = article.title.lower()
-            if any(word in title_lower for word in ["stock", "market", "finance", "trading", "investment"]):
-                topic, subject = "Finance", "Stock Market"
-                tags = ["finance", "markets", "trading"]
-            elif any(word in title_lower for word in ["ai", "artificial", "machine learning", "tech"]):
-                topic, subject = "Technology", "AI/ML"
-                tags = ["technology", "ai", "innovation"]
-            elif any(word in title_lower for word in ["politics", "election", "government", "policy"]):
-                topic, subject = "Politics", "Government"
-                tags = ["politics", "government", "policy"]
+            logger.warning(f"Light review failed, using fallback heuristics: {e}")
+            review = self._fallback_review(article, model=cfg.light_model, error=e)
+            timings["light_ms"] = (datetime.utcnow() - t0).total_seconds() * 1000.0
+            self._record_error(str(e))
+            self._record_latency("light", timings["light_ms"]) 
+            self._record_confidence(review.confidence)
+
+        # Route to HEAVY if enabled and below threshold
+        if cfg.heavy_enabled and (review.confidence < cfg.conf_threshold):
+            reviewer_type = "heavy"
+            model_used = cfg.heavy_model
+            retries = 0
+            last_exc: Optional[Exception] = None
+            while retries < 3:
+                t1 = datetime.utcnow()
+                try:
+                    heavy_resp = await self.ollama_client.generate_review(
+                        model=cfg.heavy_model,
+                        prompt=content_prompt,
+                        system_prompt=system_prompt
+                    )
+                    review = self.parse_review_response(heavy_resp, article.id)
+                    timings["heavy_ms"] = (datetime.utcnow() - t1).total_seconds() * 1000.0
+                    self._record_latency("heavy", timings["heavy_ms"]) 
+                    self._record_confidence(review.confidence)
+                    break
+                except Exception as he:
+                    last_exc = he
+                    retries += 1
+                    self._record_error(str(he))
             else:
-                topic, subject = "General", "News"
-                tags = ["news", "general"]
-            
-            review = ArticleReview(
-                article_id=article.id,
-                topic=topic,
-                subject=subject,
-                tags=tags,
-                summary=article.summary[:500] if article.summary else article.title,
-                importance_rank=5,
-                review_metadata={
-                    "model_used": model,
-                    "review_timestamp": datetime.utcnow().isoformat(),
-                    "fallback_used": True,
-                    "error": str(e),
-                    "raw_response": ""
-                }
+                # Fallback to light output
+                fallback_used = True
+                reviewer_type = "light"
+                model_used = cfg.light_model
+
+        # Enrich review metadata
+        review.review_metadata.update({
+            "light_model": cfg.light_model,
+            "heavy_model": cfg.heavy_model,
+            "model_used": model_used,
+            "reviewer_type": reviewer_type,
+            "timings_ms": timings,
+            "fallback_used": fallback_used,
+        })
+
+        return {
+            "review": review,
+            "reviewer_type": reviewer_type,
+            "fallback": fallback_used,
+            "timings": timings,
+        }
+
+    def _fallback_review(self, article: Article, model: str, error: Exception) -> ArticleReview:
+        title_lower = (article.title or "").lower()
+        if any(word in title_lower for word in ["stock", "market", "finance", "trading", "investment"]):
+            topic, subject = "Finance", "Stock Market"
+            tags = ["finance", "markets", "trading"]
+        elif any(word in title_lower for word in ["ai", "artificial", "machine learning", "tech"]):
+            topic, subject = "Technology", "AI/ML"
+            tags = ["technology", "ai", "innovation"]
+        elif any(word in title_lower for word in ["politics", "election", "government", "policy"]):
+            topic, subject = "Politics", "Government"
+            tags = ["politics", "government", "policy"]
+        else:
+            topic, subject = "General", "News"
+            tags = ["news", "general"]
+        return ArticleReview(
+            article_id=article.id,
+            topic=topic,
+            subject=subject,
+            tags=tags,
+            summary=(article.summary or article.title or "")[:500],
+            importance_rank=5,
+            confidence=0.0,
+            review_metadata={
+                "model_used": model,
+                "review_timestamp": datetime.utcnow().isoformat(),
+                "fallback_used": True,
+                "error": str(error),
+                "raw_response": ""
+            }
+        )
+
+    def _load_config(self) -> ReviewerConfig:
+        try:
+            cfg_map = self.redis.hgetall(self.config_key) or {}
+            conf_threshold = float(cfg_map.get("conf_threshold", DEFAULT_CONF_THRESHOLD))
+            heavy_enabled = str(cfg_map.get("heavy_enabled", str(DEFAULT_HEAVY_ENABLED))).lower() in ("1", "true", "yes")
+            light_model = cfg_map.get("light_model", DEFAULT_LIGHT_MODEL)
+            heavy_model = cfg_map.get("heavy_model", DEFAULT_HEAVY_MODEL)
+            light_workers = int(cfg_map.get("light_workers", 1))
+            return ReviewerConfig(
+                conf_threshold=conf_threshold,
+                heavy_enabled=heavy_enabled,
+                light_model=light_model,
+                heavy_model=heavy_model,
+                light_workers=light_workers
             )
-        
-        return review
+        except Exception:
+            return ReviewerConfig()
+
+    def _record_latency(self, which: str, ms: float) -> None:
+        try:
+            key = self.lat_list_light if which == "light" else self.lat_list_heavy
+            self.redis.lpush(key, f"{int(datetime.utcnow().timestamp())}|{int(ms)}")
+            self.redis.ltrim(key, 0, 4999)
+        except Exception:
+            pass
+
+    def _record_error(self, message: str) -> None:
+        try:
+            self.redis.lpush(self.err_list, f"{int(datetime.utcnow().timestamp())}|{message[:200]}")
+            self.redis.ltrim(self.err_list, 0, 999)
+        except Exception:
+            pass
+
+    def _record_confidence(self, confidence: float) -> None:
+        try:
+            bucket = max(0, min(19, int(confidence / 0.05)))
+            bucket_label = f"{bucket*0.05:.2f}-{(bucket+1)*0.05:.2f}"
+            self.redis.hincrby(self.conf_hist, bucket_label, 1)
+        except Exception:
+            pass
 
 
 # Initialize services
@@ -323,8 +459,22 @@ async def startup_event():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "reviewer", "timestamp": datetime.utcnow()}
+    """Health check endpoint with avg latency."""
+    r = article_reviewer.redis
+    try:
+        light_lat = _avg_latency_ms(r, article_reviewer.lat_list_light, window_seconds=300)
+        heavy_lat = _avg_latency_ms(r, article_reviewer.lat_list_heavy, window_seconds=300)
+    except Exception:
+        light_lat = heavy_lat = 0.0
+    cfg = article_reviewer._load_config()
+    return {
+        "status": "ok",
+        "service": "reviewer",
+        "model_light": cfg.light_model,
+        "model_heavy": cfg.heavy_model,
+        "avg_latency_ms": {"light": light_lat, "heavy": heavy_lat},
+        "timestamp": datetime.utcnow()
+    }
 
 
 @app.post("/review-article", response_model=ReviewResponse)
@@ -342,21 +492,107 @@ async def review_article(
     start_time = datetime.utcnow()
     
     try:
-        review = await article_reviewer.review_article(article)
-        
+        result = await article_reviewer.review_article(article)
+        review: ArticleReview = result["review"]
+        reviewer_type: str = result["reviewer_type"]
+        fallback_used: bool = result["fallback"]
+        timings = result.get("timings", {})
+
+        # Persist review on Article (transactional: store once)
+        article.review_tags = review.tags
+        article.review_summary = review.summary
+        article.confidence = review.confidence
+        article.reviewer_type = reviewer_type
+        article.processed_at = datetime.utcnow()
+        # Compute fingerprint if missing
+        try:
+            if not getattr(article, "fingerprint", None):
+                import hashlib
+                pub_iso = article.publish_date.isoformat() if article.publish_date else ""
+                to_hash = f"{article.link}|{article.title}|{pub_iso}".encode("utf-8", errors="ignore")
+                article.fingerprint = hashlib.sha256(to_hash).hexdigest()
+        except Exception:
+            pass
+        # Store metadata
+        meta = dict(review.review_metadata or {})
+        meta.update({"fallback": fallback_used, "timings_ms": timings})
+        article.review_metadata = meta
+        db.commit()
+
         processing_time = (datetime.utcnow() - start_time).total_seconds()
         
-        logger.info(f"Successfully reviewed article {request.article_id}")
+        logger.info(f"Successfully reviewed article {request.article_id} ({reviewer_type})")
         
         return ReviewResponse(
             article_id=request.article_id,
             review=review,
-            processing_time_seconds=processing_time
+            processing_time_seconds=processing_time,
+            reviewer_type=reviewer_type,
+            fallback=fallback_used
         )
         
     except Exception as e:
         logger.error(f"Error reviewing article {request.article_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Article review failed: {str(e)}")
+@app.post("/review")
+async def review_feed(request: FeedReviewRequest):
+    """Review a feed item (stateless) and return tags/summary/confidence."""
+    # Build transient Article-like object
+    dummy = Article(
+        id=UUID("00000000-0000-0000-0000-000000000000"),
+        feed_id=UUID("00000000-0000-0000-0000-000000000000"),
+        title=request.title,
+        link=request.url,
+        summary=request.content or "",
+        content=request.content or "",
+        publish_date=datetime.fromisoformat(request.published.replace("Z", "+00:00")) if request.published else None
+    )
+    result = await article_reviewer.review_article(dummy)
+    review: ArticleReview = result["review"]
+    cfg = article_reviewer._load_config()
+    return {
+        "tags": review.tags,
+        "summary": review.summary,
+        "confidence": review.confidence,
+        "model": review.review_metadata.get("model_used", cfg.light_model),
+        "reviewer_type": result.get("reviewer_type", "light"),
+    }
+
+
+@app.get("/config", response_model=ReviewerConfig)
+async def get_config():
+    return article_reviewer._load_config()
+
+
+@app.put("/config", response_model=ReviewerConfig)
+async def put_config(cfg: ReviewerConfig):
+    r = article_reviewer.redis
+    try:
+        r.hset(article_reviewer.config_key, mapping={
+            "conf_threshold": cfg.conf_threshold,
+            "heavy_enabled": int(cfg.heavy_enabled),
+            "light_model": cfg.light_model,
+            "heavy_model": cfg.heavy_model,
+            "light_workers": cfg.light_workers,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save config: {e}")
+    return article_reviewer._load_config()
+
+
+@app.get("/metrics", response_model=MetricsResponse)
+async def get_metrics():
+    r = article_reviewer.redis
+    hist = r.hgetall(article_reviewer.conf_hist) or {}
+    # Windows: last 5 minutes and 1 hour
+    last_5m = _window_metrics(r, 300, hist)
+    last_1h = _window_metrics(r, 3600, hist)
+    qlen = 0
+    try:
+        qlen = r.llen(article_reviewer.queue_key)
+    except Exception:
+        pass
+    return MetricsResponse(last_5m=last_5m, last_1h=last_1h, queue_length=qlen)
 
 
 @app.post("/review-articles-batch")
@@ -422,7 +658,8 @@ async def test_review(
             publish_date=datetime.utcnow()
         )
         
-        review = await article_reviewer.review_article(test_article)
+        result = await article_reviewer.review_article(test_article)
+        review = result["review"]
         
         return {
             "test_article": {
@@ -448,11 +685,17 @@ async def review_article_background(article_id: UUID):
             logger.error(f"Article {article_id} not found for background review")
             return
         
-        review = await article_reviewer.review_article(article)
-        logger.info(f"Background review completed for article {article_id}: {review.topic}/{review.subject}")
-        
-        # In a real system, you would store the review results in the database
-        # For now, we just log the results
+        result = await article_reviewer.review_article(article)
+        review: ArticleReview = result["review"]
+        reviewer_type = result["reviewer_type"]
+        logger.info(f"Background review completed for article {article_id}: {review.topic}/{review.subject} ({reviewer_type})")
+        # Persist minimal fields
+        article.review_tags = review.tags
+        article.review_summary = review.summary
+        article.confidence = review.confidence
+        article.reviewer_type = reviewer_type
+        article.processed_at = datetime.utcnow()
+        db.commit()
         
     except Exception as e:
         logger.error(f"Error in background review for article {article_id}: {e}")
@@ -463,3 +706,67 @@ async def review_article_background(article_id: UUID):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8007)
+
+
+# Helper functions (module-level)
+def _avg_latency_ms(r: redis.Redis, list_key: str, window_seconds: int) -> float:
+    try:
+        now = int(datetime.utcnow().timestamp())
+        entries = r.lrange(list_key, 0, 999)
+        vals = []
+        for e in entries:
+            try:
+                ts_s, ms_s = e.split("|", 1)
+                if now - int(ts_s) <= window_seconds:
+                    vals.append(int(ms_s))
+            except Exception:
+                continue
+        if not vals:
+            return 0.0
+        return sum(vals) / len(vals)
+    except Exception:
+        return 0.0
+
+
+def _window_metrics(r: redis.Redis, window_seconds: int, hist: Dict[str, str]) -> MetricsWindow:
+    now = int(datetime.utcnow().timestamp())
+    def _count_and_avg(list_key: str) -> (int, float):
+        entries = r.lrange(list_key, 0, 1999)
+        vals = []
+        for e in entries:
+            try:
+                ts_s, ms_s = e.split("|", 1)
+                if now - int(ts_s) <= window_seconds:
+                    vals.append(int(ms_s))
+            except Exception:
+                continue
+        if not vals:
+            return 0, 0.0
+        return len(vals), sum(vals) / len(vals)
+
+    light_count, light_avg = _count_and_avg(article_reviewer.lat_list_light)
+    heavy_count, heavy_avg = _count_and_avg(article_reviewer.lat_list_heavy)
+    err_entries = r.lrange(article_reviewer.err_list, 0, 999)
+    errors = 0
+    for e in err_entries:
+        try:
+            ts_s, _ = e.split("|", 1)
+            if now - int(ts_s) <= window_seconds:
+                errors += 1
+        except Exception:
+            continue
+    total = light_count + heavy_count + errors
+    success = light_count + heavy_count
+    success_rate = (success / total) if total else 1.0
+    error_rate = (errors / total) if total else 0.0
+    # Confidence histogram: return raw stored counts
+    conf_hist = {k: int(v) for k, v in (hist or {}).items()}
+    return MetricsWindow(
+        total_light=light_count,
+        total_heavy=heavy_count,
+        avg_latency_ms_light=light_avg,
+        avg_latency_ms_heavy=heavy_avg,
+        success_rate=success_rate,
+        error_rate=error_rate,
+        confidence_histogram=conf_hist,
+    )
