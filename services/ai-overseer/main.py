@@ -25,6 +25,8 @@ from schemas import (
 )
 from app.celery import celery
 from app.services import EpisodeGenerationService
+import os
+import redis
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +42,13 @@ episode_generation_service = EpisodeGenerationService()
 async def startup_event():
     create_tables()
     logger.info("AI Overseer Service started")
+    # Initialize Redis connection for duplicates metrics API
+    global redis_client
+    try:
+        redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+    except Exception as e:
+        redis_client = None
+        logger.warning(f"Redis not available for Overseer metrics: {e}")
 
 
 @app.get("/health", response_model=HealthCheck)
@@ -271,6 +280,41 @@ async def cleanup_old_data(background_tasks: BackgroundTasks):
             "message": "Cleanup task queued",
             "task_id": task.id
         }
+
+
+@app.get("/api/overseer/duplicates")
+async def get_duplicates_since(since: str):
+    """Return count of duplicates filtered since timestamp (ISO8601).
+    Reads timestamps from news-feed's Redis list reviewer:duplicates:events
+    """
+    from datetime import datetime
+    try:
+        dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        ts = int(dt.timestamp())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid 'since' timestamp")
+
+    if not ('redis_client' in globals() and redis_client):
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+
+    try:
+        events = redis_client.lrange("reviewer:duplicates:events", 0, -1)
+        count = 0
+        for e in events:
+            try:
+                if int(e) >= ts:
+                    count += 1
+            except Exception:
+                continue
+        # Estimate unique processed as total new Article rows since 'since'
+        # For simplicity, return placeholder 0 here; UI can compute via DB if needed
+        return {
+            "since": since,
+            "duplicate_count": count,
+            "unique_processed": 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read duplicates: {e}")
         
     except Exception as e:
         logger.error(f"Error queuing cleanup task: {e}")

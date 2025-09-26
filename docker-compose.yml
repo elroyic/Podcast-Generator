@@ -48,6 +48,92 @@ services:
       - ./services:/app/services
       - ./shared:/app/shared
 
+  # Light Reviewer Service
+  light-reviewer:
+    build: ./services/light-reviewer
+    ports:
+      - "8007:8000"
+    environment:
+      - VLLM_BASE_URL=http://vllm:8000
+      - MODEL_NAME=Qwen2-0.5B
+      - PORT=8000
+    depends_on:
+      - vllm
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "4G"
+
+  # Heavy Reviewer Service
+  heavy-reviewer:
+    build: ./services/heavy-reviewer
+    ports:
+      - "8011:8000"
+    environment:
+      - VLLM_BASE_URL=http://vllm:8000
+      - MODEL_NAME=Qwen3-4B-Thinking-2507
+      - PORT=8000
+    depends_on:
+      - vllm
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: "12G"
+
+  # Reviewer Orchestrator Service
+  reviewer:
+    build: ./services/reviewer
+    ports:
+      - "8013:8008"
+    environment:
+      - PYTHONPATH=/app
+      - PORT=8008
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LIGHT_REVIEWER_URL=http://light-reviewer:8000
+      - HEAVY_REVIEWER_URL=http://heavy-reviewer:8000
+      - REVIEWER_CONF_THRESHOLD=0.85
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      light-reviewer:
+        condition: service_started
+      heavy-reviewer:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+      - ./shared:/app/shared
+
+  # Collections Service
+  collections:
+    build: ./services/collections
+    ports:
+      - "8014:8011"
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - REVIEWER_URL=http://reviewer:8008
+      - MIN_FEEDS_PER_COLLECTION=3
+      - COLLECTION_TTL_HOURS=24
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      reviewer:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+      - ./shared:/app/shared
+
   # AI Overseer Service
   ai-overseer:
     build: ./services/ai-overseer
@@ -183,7 +269,27 @@ services:
     volumes:
       - ./services:/app/services
 
-  # Ollama for local LLM inference
+  # vLLM for high-performance LLM inference
+  vllm:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8020:8000"
+    environment:
+      - MODEL_NAME=Qwen2-0.5B
+      - HOST=0.0.0.0
+      - PORT=8000
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: "16G"
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Ollama for local LLM inference (fallback)
   ollama:
     image: ollama/ollama:latest
     # Allow Ollama to use up to 5 CPUs

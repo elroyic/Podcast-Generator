@@ -1,96 +1,65 @@
 #!/usr/bin/env python3
 """
-Cleanup script to remove duplicate podcast groups and keep only the most recent ones.
+Script to clean up duplicate presenters in the database.
 """
+import os
+import sys
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from shared.models import Presenter
 
-import requests
-import json
-from collections import defaultdict
-from datetime import datetime
+# Database connection
+DATABASE_URL = "postgresql://podcast_user:podcast_pass@localhost:5432/podcast_ai"
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def cleanup_duplicates():
-    """Remove duplicate podcast groups, keeping only the most recent ones."""
+def cleanup_duplicate_presenters():
+    """Remove duplicate presenters, keeping only the first one of each name."""
+    db = SessionLocal()
     
-    base_url = "http://localhost:8000"
-    session = requests.Session()
-    
-    print("🧹 Starting cleanup of duplicate podcast groups...")
-    
-    # Get all podcast groups
-    response = session.get(f"{base_url}/api/podcast-groups")
-    if response.status_code != 200:
-        print(f"❌ Failed to get podcast groups: {response.status_code}")
-        return
-    
-    groups = response.json()
-    print(f"📊 Found {len(groups)} total podcast groups")
-    
-    # Group by name to find duplicates
-    groups_by_name = defaultdict(list)
-    for group in groups:
-        groups_by_name[group['name']].append(group)
-    
-    # Find duplicates and keep only the most recent
-    groups_to_delete = []
-    groups_to_keep = []
-    
-    for name, group_list in groups_by_name.items():
-        if len(group_list) > 1:
-            print(f"🔄 Found {len(group_list)} duplicates for '{name}'")
-            
-            # Sort by created_at (most recent first)
-            group_list.sort(key=lambda x: x['created_at'], reverse=True)
-            
-            # Keep the most recent one
-            keep_group = group_list[0]
-            groups_to_keep.append(keep_group)
-            
-            # Mark the rest for deletion
-            for group in group_list[1:]:
-                groups_to_delete.append(group)
-                print(f"  🗑️  Marking for deletion: {group['id']} (created: {group['created_at']})")
-            
-            print(f"  ✅ Keeping: {keep_group['id']} (created: {keep_group['created_at']})")
-        else:
-            # No duplicates, keep the single group
-            groups_to_keep.append(group_list[0])
-    
-    print(f"\n📋 Cleanup Summary:")
-    print(f"  - Total groups: {len(groups)}")
-    print(f"  - Groups to keep: {len(groups_to_keep)}")
-    print(f"  - Groups to delete: {len(groups_to_delete)}")
-    
-    if not groups_to_delete:
-        print("✅ No duplicates found. Database is clean!")
-        return
-    
-    # Delete duplicate groups
-    deleted_count = 0
-    for group in groups_to_delete:
-        try:
-            delete_response = session.delete(f"{base_url}/api/podcast-groups/{group['id']}")
-            if delete_response.status_code == 200:
-                deleted_count += 1
-                print(f"✅ Deleted: {group['name']} ({group['id']})")
-            else:
-                print(f"❌ Failed to delete {group['name']}: {delete_response.status_code}")
-        except Exception as e:
-            print(f"❌ Error deleting {group['name']}: {e}")
-    
-    print(f"\n🎉 Cleanup completed!")
-    print(f"  - Successfully deleted: {deleted_count} duplicate groups")
-    print(f"  - Remaining groups: {len(groups) - deleted_count}")
-    
-    # Verify final state
-    final_response = session.get(f"{base_url}/api/podcast-groups")
-    if final_response.status_code == 200:
-        final_groups = final_response.json()
-        print(f"  - Final count: {len(final_groups)} groups")
+    try:
+        # Get all presenters grouped by name
+        presenters = db.query(Presenter).all()
         
-        # Show remaining groups
-        print(f"\n📋 Remaining Podcast Groups:")
-        for group in final_groups:
-            print(f"  - {group['name']} (ID: {group['id'][:8]}...)")
+        # Group by name
+        name_groups = {}
+        for presenter in presenters:
+            if presenter.name not in name_groups:
+                name_groups[presenter.name] = []
+            name_groups[presenter.name].append(presenter)
+        
+        # Remove duplicates
+        total_removed = 0
+        for name, group in name_groups.items():
+            if len(group) > 1:
+                # Keep the first one, remove the rest
+                keep_presenter = group[0]
+                duplicates = group[1:]
+                
+                print(f"Found {len(duplicates)} duplicates for '{name}', keeping ID {keep_presenter.id}")
+                
+                for duplicate in duplicates:
+                    print(f"  Removing duplicate ID {duplicate.id}")
+                    db.delete(duplicate)
+                    total_removed += 1
+        
+        db.commit()
+        print(f"\nCleanup complete! Removed {total_removed} duplicate presenters.")
+        
+        # Show final counts
+        final_presenters = db.query(Presenter).all()
+        print(f"Total presenters remaining: {len(final_presenters)}")
+        
+        for name, group in name_groups.items():
+            if len(group) > 1:
+                remaining = db.query(Presenter).filter(Presenter.name == name).count()
+                print(f"  {name}: {remaining} remaining")
+        
+    except Exception as e:
+        print(f"Error during cleanup: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 if __name__ == "__main__":
-    cleanup_duplicates()
+    cleanup_duplicate_presenters()

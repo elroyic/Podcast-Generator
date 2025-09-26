@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - News Feed Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <h1 class="text-xl font-bold text-gray-800">Podcast AI</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
+                        <a href="/news-feed" class="text-gray-900 font-semibold">News Feed</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <div class="px-4 py-5 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-800">News Feed Dashboard</h2>
+                <p class="mt-1 max-w-2xl text-sm text-gray-500">Monitor RSS feed performance and article processing</p>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-rss text-2xl text-blue-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Total Feeds</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="total-feeds">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-check-circle text-2xl text-green-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Active Feeds</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="active-feeds">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-newspaper text-2xl text-purple-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Articles Today</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="articles-today">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-clock text-2xl text-orange-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Last Fetch</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="last-fetch">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feed Performance Chart -->
+            <div class="bg-white shadow rounded-lg p-6 mb-8">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Feed Performance (Last 24 Hours)</h3>
+                <div class="h-64 flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg">
+                    <div class="text-center">
+                        <i class="bi bi-graph-up text-4xl text-gray-400 mb-2"></i>
+                        <p class="text-gray-500">Performance chart will be implemented here</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feeds Table -->
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">RSS Feeds</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">List of all configured RSS feeds and their status</p>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feed Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Fetch</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Articles</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feeds-table" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                    <div class="flex items-center justify-center">
+                                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                        <span class="ml-2">Loading feeds...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Recent Articles -->
+            <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Recent Articles</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Latest articles processed from RSS feeds</p>
+                </div>
+                <ul id="recent-articles" class="divide-y divide-gray-200">
+                    <li class="px-6 py-4 text-center text-gray-500">
+                        <div class="flex items-center justify-center">
+                            <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                            <span class="ml-2">Loading recent articles...</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="mt-8 bg-white shadow rounded-lg p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <button onclick="refreshAllFeeds()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-arrow-clockwise mr-2"></i>Refresh All Feeds
+                    </button>
+                    <button onclick="addNewFeed()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-plus-circle mr-2"></i>Add New Feed
+                    </button>
+                    <button onclick="viewFeedStats()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-graph-up mr-2"></i>View Stats
+                    </button>
+                    <button onclick="exportFeedData()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-download mr-2"></i>Export Data
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadFeedStats() {
+            try {
+                const response = await fetch('/api/news-feed/stats');
+                const stats = await response.json();
+                
+                document.getElementById('total-feeds').textContent = stats.total_feeds || 0;
+                document.getElementById('active-feeds').textContent = stats.active_feeds || 0;
+                document.getElementById('articles-today').textContent = stats.articles_today || 0;
+                document.getElementById('last-fetch').textContent = stats.last_fetch || 'Never';
+                
+            } catch (error) {
+                console.error('Error loading feed stats:', error);
+                document.getElementById('total-feeds').textContent = 'Error';
+                document.getElementById('active-feeds').textContent = 'Error';
+                document.getElementById('articles-today').textContent = 'Error';
+                document.getElementById('last-fetch').textContent = 'Error';
+            }
+        }
+
+        async function loadFeeds() {
+            try {
+                const response = await fetch('/api/news-feeds');
+                const feeds = await response.json();
+                
+                const tableBody = document.getElementById('feeds-table');
+                
+                if (feeds.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                No feeds configured. Add your first RSS feed!
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+                
+                tableBody.innerHTML = feeds.map(feed => `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${feed.name || 'Unnamed Feed'}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">
+                            <a href="${feed.source_url}" target="_blank" class="text-blue-600 hover:text-blue-900">
+                                ${feed.source_url}
+                            </a>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                feed.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }">
+                                ${feed.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${feed.last_fetched ? new Date(feed.last_fetched).toLocaleString() : 'Never'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${feed.article_count || 0}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="refreshFeed('${feed.id}')" class="text-blue-600 hover:text-blue-900 mr-3">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                            <button onclick="editFeed('${feed.id}')" class="text-green-600 hover:text-green-900">
+                                <i class="bi bi-pencil"></i> Edit
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading feeds:', error);
+                document.getElementById('feeds-table').innerHTML = `
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 text-center text-red-500">
+                            Error loading feeds: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        async function loadRecentArticles() {
+            try {
+                const response = await fetch('/api/news-feed/recent-articles');
+                const articles = await response.json();
+                
+                const articlesList = document.getElementById('recent-articles');
+                
+                if (articles.length === 0) {
+                    articlesList.innerHTML = `
+                        <li class="px-6 py-4 text-center text-gray-500">
+                            No recent articles found.
+                        </li>
+                    `;
+                    return;
+                }
+                
+                articlesList.innerHTML = articles.map(article => `
+                    <li class="px-6 py-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900 truncate">
+                                    ${article.title}
+                                </p>
+                                <p class="text-sm text-gray-500 truncate">
+                                    ${article.feed_name} • ${new Date(article.publish_date).toLocaleDateString()}
+                                </p>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                    article.reviewer_type === 'light' ? 'bg-blue-100 text-blue-800' :
+                                    article.reviewer_type === 'heavy' ? 'bg-purple-100 text-purple-800' :
+                                    'bg-gray-100 text-gray-800'
+                                }">
+                                    ${article.reviewer_type || 'unreviewed'}
+                                </span>
+                                <a href="${article.link}" target="_blank" class="text-blue-600 hover:text-blue-900">
+                                    <i class="bi bi-box-arrow-up-right"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </li>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading recent articles:', error);
+                document.getElementById('recent-articles').innerHTML = `
+                    <li class="px-6 py-4 text-center text-red-500">
+                        Error loading recent articles: ${error.message}
+                    </li>
+                `;
+            }
+        }
+
+        function refreshAllFeeds() {
+            alert('Refresh All Feeds functionality - to be implemented');
+        }
+
+        function addNewFeed() {
+            alert('Add New Feed functionality - to be implemented');
+        }
+
+        function viewFeedStats() {
+            alert('View Feed Stats functionality - to be implemented');
+        }
+
+        function exportFeedData() {
+            alert('Export Feed Data functionality - to be implemented');
+        }
+
+        function refreshFeed(feedId) {
+            alert(`Refresh Feed ${feedId} functionality - to be implemented`);
+        }
+
+        function editFeed(feedId) {
+            alert(`Edit Feed ${feedId} functionality - to be implemented`);
+        }
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFeedStats();
+            loadFeeds();
+            loadRecentArticles();
+        });
+    </script>
+</body>
+</html>

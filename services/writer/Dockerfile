@@ -19,5 +19,9 @@ RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
 USER app
 
 EXPOSE 8003
+# Expose script generator optional port
+EXPOSE 8010
 
+# Default runs metadata writer; script generator can be run with:
+# uvicorn main_script:app --host 0.0.0.0 --port 8010
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]

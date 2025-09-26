@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - Collections Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <h1 class="text-xl font-bold text-gray-800">Podcast AI</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
+                        <a href="/collections" class="text-gray-900 font-semibold">Collections</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <div class="px-4 py-5 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-800">Collections Dashboard</h2>
+                <p class="mt-1 max-w-2xl text-sm text-gray-500">Manage article collections for podcast generation</p>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-collection text-2xl text-blue-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Total Collections</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="total-collections">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-check-circle text-2xl text-green-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Ready Collections</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="ready-collections">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-clock text-2xl text-yellow-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Processing</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="processing-collections">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-newspaper text-2xl text-purple-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Total Articles</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="total-articles">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collections Table -->
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Article Collections</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Collections of reviewed articles ready for podcast generation</p>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Collection ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Articles</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="collections-table" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                    <div class="flex items-center justify-center">
+                                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                        <span class="ml-2">Loading collections...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Collection Details Modal -->
+            <div id="collection-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+                <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+                    <div class="mt-3">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-medium text-gray-900">Collection Details</h3>
+                            <button onclick="closeCollectionModal()" class="text-gray-400 hover:text-gray-600">
+                                <i class="bi bi-x-lg text-xl"></i>
+                            </button>
+                        </div>
+                        <div id="collection-details" class="space-y-4">
+                            <!-- Collection details will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="mt-8 bg-white shadow rounded-lg p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <button onclick="createNewCollection()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-plus-circle mr-2"></i>Create Collection
+                    </button>
+                    <button onclick="refreshCollections()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-arrow-clockwise mr-2"></i>Refresh
+                    </button>
+                    <button onclick="viewCollectionStats()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-graph-up mr-2"></i>View Stats
+                    </button>
+                    <button onclick="exportCollections()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-download mr-2"></i>Export
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadCollectionStats() {
+            try {
+                const response = await fetch('/api/collections/stats');
+                const stats = await response.json();
+                
+                document.getElementById('total-collections').textContent = stats.total_collections || 0;
+                document.getElementById('ready-collections').textContent = stats.ready_collections || 0;
+                document.getElementById('processing-collections').textContent = stats.processing_collections || 0;
+                document.getElementById('total-articles').textContent = stats.total_articles || 0;
+                
+            } catch (error) {
+                console.error('Error loading collection stats:', error);
+                document.getElementById('total-collections').textContent = 'Error';
+                document.getElementById('ready-collections').textContent = 'Error';
+                document.getElementById('processing-collections').textContent = 'Error';
+                document.getElementById('total-articles').textContent = 'Error';
+            }
+        }
+
+        async function loadCollections() {
+            try {
+                const response = await fetch('/api/collections');
+                const collections = await response.json();
+                
+                const tableBody = document.getElementById('collections-table');
+                
+                if (collections.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                No collections found. Create your first collection!
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+                
+                tableBody.innerHTML = collections.map(collection => `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${collection.id.substring(0, 8)}...
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            ${collection.group_name || 'Unknown Group'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                collection.status === 'ready' ? 'bg-green-100 text-green-800' :
+                                collection.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                                collection.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                            }">
+                                ${collection.status}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${collection.article_count || 0}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(collection.created_at).toLocaleDateString()}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="viewCollection('${collection.id}')" class="text-blue-600 hover:text-blue-900 mr-3">
+                                <i class="bi bi-eye"></i> View
+                            </button>
+                            <button onclick="editCollection('${collection.id}')" class="text-green-600 hover:text-green-900">
+                                <i class="bi bi-pencil"></i> Edit
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading collections:', error);
+                document.getElementById('collections-table').innerHTML = `
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 text-center text-red-500">
+                            Error loading collections: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        async function viewCollection(collectionId) {
+            try {
+                const response = await fetch(`/api/collections/${collectionId}`);
+                const collection = await response.json();
+                
+                const detailsDiv = document.getElementById('collection-details');
+                detailsDiv.innerHTML = `
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Collection ID</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.id}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Status</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.status}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Group</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.group_name || 'Unknown'}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Articles</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.article_count || 0}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Created</label>
+                            <p class="mt-1 text-sm text-gray-900">${new Date(collection.created_at).toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Updated</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.updated_at ? new Date(collection.updated_at).toLocaleString() : 'Never'}</p>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700">Articles</label>
+                        <div class="mt-2 max-h-64 overflow-y-auto border rounded-md p-3">
+                            ${collection.articles ? collection.articles.map(article => `
+                                <div class="border-b pb-2 mb-2 last:border-b-0">
+                                    <h4 class="font-medium text-sm">${article.title}</h4>
+                                    <p class="text-xs text-gray-500">${article.feed_name} • ${new Date(article.publish_date).toLocaleDateString()}</p>
+                                    <p class="text-xs text-gray-600 mt-1">${article.summary}</p>
+                                </div>
+                            `).join('') : '<p class="text-gray-500">No articles in this collection</p>'}
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('collection-modal').classList.remove('hidden');
+                
+            } catch (error) {
+                console.error('Error loading collection details:', error);
+                alert('Error loading collection details: ' + error.message);
+            }
+        }
+
+        function closeCollectionModal() {
+            document.getElementById('collection-modal').classList.add('hidden');
+        }
+
+        function refreshCollections() {
+            loadCollectionStats();
+            loadCollections();
+        }
+
+        function createNewCollection() {
+            alert('Create New Collection functionality - to be implemented');
+        }
+
+        function viewCollectionStats() {
+            alert('View Collection Stats functionality - to be implemented');
+        }
+
+        function exportCollections() {
+            alert('Export Collections functionality - to be implemented');
+        }
+
+        function editCollection(collectionId) {
+            alert(`Edit Collection ${collectionId} functionality - to be implemented`);
+        }
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCollectionStats();
+            loadCollections();
+        });
+    </script>
+</body>
+</html>

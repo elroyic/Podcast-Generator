@@ -1,3 +1,4 @@
+
 """
 Service clients for communicating with other microservices.
 """
@@ -85,6 +86,20 @@ class NewsFeedService(ServiceClient):
         except Exception as e:
             logger.error(f"Error getting recent articles: {e}")
             return []
+
+
+class CollectionsService(ServiceClient):
+    """Client for Collections Service."""
+
+    def __init__(self):
+        super().__init__("http://collections:8011")
+
+    async def get_collection(self, collection_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            return await self._make_request("GET", f"/collections/{collection_id}")
+        except Exception as e:
+            logger.error(f"Error fetching collection {collection_id}: {e}")
+            return None
 
 
 class TextGenerationService(ServiceClient):
@@ -200,12 +215,13 @@ class EpisodeGenerationService:
     
     def __init__(self):
         self.news_feed_service = NewsFeedService()
+        self.collections_service = CollectionsService()
         self.text_generation_service = TextGenerationService()
         self.writer_service = WriterService()
         self.presenter_service = PresenterService()
         self.publishing_service = PublishingService()
     
-    async def generate_complete_episode(self, group_id: UUID) -> Dict[str, Any]:
+    async def generate_complete_episode(self, group_id: UUID, collection_id: Optional[str] = None) -> Dict[str, Any]:
         """Generate a complete episode from start to finish."""
         db = get_db_session()
         
@@ -217,11 +233,27 @@ class EpisodeGenerationService:
             if not group:
                 raise ValueError(f"Podcast group {group_id} not found")
             
-            # Step 2: Get recent articles
-            logger.info("Fetching recent articles")
-            articles = await self.news_feed_service.get_recent_articles(group_id)
+            # Step 2: Gather article summaries (prefer selected collection if provided)
+            articles: List[Dict[str, Any]] = []
+            if collection_id:
+                logger.info(f"Using selected collection {collection_id} for content")
+                collection = await self.collections_service.get_collection(collection_id)
+                if collection:
+                    # Extract feeds as article summaries
+                    for item in collection.get("items", []):
+                        if item.get("item_type") == "feed":
+                            content = item.get("content", {})
+                            articles.append({
+                                "title": content.get("title"),
+                                "summary": content.get("summary"),
+                                "link": content.get("link"),
+                                "publish_date": content.get("publish_date")
+                            })
             if not articles:
-                raise ValueError("No recent articles found")
+                logger.info("Falling back to recent articles from NewsFeedService")
+                articles = await self.news_feed_service.get_recent_articles(group_id)
+            if not articles:
+                raise ValueError("No article content available to generate episode")
             
             # Step 3: Generate script
             logger.info("Generating podcast script")

@@ -158,7 +158,7 @@ class PodcastGroupUpdate(PodcastGroupBase):
 
 class PodcastGroup(PodcastGroupBase):
     id: UUID
-    writer_id: UUID
+    writer_id: Optional[UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     presenters: List[Presenter] = []

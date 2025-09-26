@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """
-Setup script to add the 34 RSS feeds specified in the Workflow.md document.
-This script will populate the news_feeds table with all the required RSS feeds.
+Setup script to add the 34 RSS feeds from Workflow.md to the system.
+This script creates news feeds in the database for all the specified RSS sources.
 """
-
 import asyncio
 import httpx
 import logging
-from datetime import datetime
 from typing import List, Dict
-
-from shared.database import get_db, create_tables
-from shared.models import NewsFeed, FeedType
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -55,79 +50,91 @@ RSS_FEEDS = [
     {"name": "NPR News Top Stories", "url": "https://feeds.npr.org/1001/rss.xml"},
 ]
 
+# API Gateway URL
+API_GATEWAY_URL = "http://localhost:8000"
 
-async def test_feed_accessibility(feed_url: str) -> bool:
-    """Test if a feed URL is accessible."""
+
+async def create_news_feed(client: httpx.AsyncClient, feed_data: Dict[str, str]) -> bool:
+    """Create a news feed via the API."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(feed_url)
-            return response.status_code == 200
+        payload = {
+            "source_url": feed_data["url"],
+            "name": feed_data["name"],
+            "type": "RSS",
+            "is_active": True
+        }
+        
+        response = await client.post(
+            f"{API_GATEWAY_URL}/api/news-feeds",
+            json=payload,
+            timeout=30.0
+        )
+        
+        if response.status_code == 200:
+            logger.info(f"✅ Created feed: {feed_data['name']}")
+            return True
+        else:
+            logger.error(f"❌ Failed to create feed {feed_data['name']}: {response.status_code} - {response.text}")
+            return False
+            
     except Exception as e:
-        logger.warning(f"Feed {feed_url} not accessible: {e}")
+        logger.error(f"❌ Error creating feed {feed_data['name']}: {e}")
         return False
 
 
-async def setup_rss_feeds():
-    """Setup all RSS feeds in the database."""
-    logger.info("Starting RSS feeds setup...")
-    
-    # Create tables
-    create_tables()
-    
-    # Get database session
-    db = next(get_db())
-    
+async def check_existing_feeds(client: httpx.AsyncClient) -> List[str]:
+    """Check which feeds already exist."""
     try:
-        # Test feed accessibility first
-        accessible_feeds = []
-        for feed_data in RSS_FEEDS:
-            logger.info(f"Testing accessibility of {feed_data['name']}...")
-            if await test_feed_accessibility(feed_data['url']):
-                accessible_feeds.append(feed_data)
-                logger.info(f"✓ {feed_data['name']} is accessible")
-            else:
-                logger.warning(f"✗ {feed_data['name']} is not accessible")
-        
-        logger.info(f"Found {len(accessible_feeds)} accessible feeds out of {len(RSS_FEEDS)} total")
-        
-        # Add accessible feeds to database
-        added_count = 0
-        for feed_data in accessible_feeds:
-            # Check if feed already exists
-            existing_feed = db.query(NewsFeed).filter(
-                NewsFeed.source_url == feed_data['url']
-            ).first()
-            
-            if not existing_feed:
-                feed = NewsFeed(
-                    source_url=feed_data['url'],
-                    name=feed_data['name'],
-                    type=FeedType.RSS,
-                    is_active=True
-                )
-                db.add(feed)
-                added_count += 1
-                logger.info(f"Added feed: {feed_data['name']}")
-            else:
-                logger.info(f"Feed already exists: {feed_data['name']}")
-        
-        db.commit()
-        logger.info(f"Successfully added {added_count} new RSS feeds to the database")
-        
-        # List all feeds in database
-        all_feeds = db.query(NewsFeed).filter(NewsFeed.type == FeedType.RSS).all()
-        logger.info(f"Total RSS feeds in database: {len(all_feeds)}")
-        
-        for feed in all_feeds:
-            logger.info(f"  - {feed.name}: {feed.source_url}")
-        
+        response = await client.get(f"{API_GATEWAY_URL}/api/news-feeds", timeout=30.0)
+        if response.status_code == 200:
+            existing_feeds = response.json()
+            return [feed["source_url"] for feed in existing_feeds]
+        else:
+            logger.warning(f"Could not check existing feeds: {response.status_code}")
+            return []
     except Exception as e:
-        logger.error(f"Error setting up RSS feeds: {e}")
-        db.rollback()
-        raise
-    finally:
-        db.close()
+        logger.warning(f"Error checking existing feeds: {e}")
+        return []
+
+
+async def main():
+    """Main function to set up RSS feeds."""
+    logger.info("🚀 Starting RSS feeds setup...")
+    
+    async with httpx.AsyncClient() as client:
+        # Check existing feeds
+        logger.info("📋 Checking existing feeds...")
+        existing_urls = await check_existing_feeds(client)
+        
+        # Filter out existing feeds
+        new_feeds = [feed for feed in RSS_FEEDS if feed["url"] not in existing_urls]
+        
+        if not new_feeds:
+            logger.info("✅ All RSS feeds already exist in the system!")
+            return
+        
+        logger.info(f"📝 Found {len(new_feeds)} new feeds to create out of {len(RSS_FEEDS)} total feeds")
+        
+        # Create new feeds
+        success_count = 0
+        for feed_data in new_feeds:
+            success = await create_news_feed(client, feed_data)
+            if success:
+                success_count += 1
+            
+            # Small delay to avoid overwhelming the API
+            await asyncio.sleep(0.5)
+        
+        logger.info(f"🎉 Setup complete! Created {success_count}/{len(new_feeds)} new feeds")
+        
+        # Show summary
+        total_feeds = len(existing_urls) + success_count
+        logger.info(f"📊 Total feeds in system: {total_feeds}")
+        
+        if success_count < len(new_feeds):
+            failed_count = len(new_feeds) - success_count
+            logger.warning(f"⚠️  {failed_count} feeds failed to create. Check the logs above for details.")
 
 
 if __name__ == "__main__":
-    asyncio.run(setup_rss_feeds())
+    asyncio.run(main())

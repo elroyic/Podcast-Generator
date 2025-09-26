@@ -113,27 +113,25 @@ def _select_best_collection(candidates: List[Dict[str, Any]]) -> Optional[Dict[s
 
 
 def _current_bucket_for_group(db: Session, group: PodcastGroup) -> Tuple[str, int]:
-    """Decide which cadence bucket applies using last publish time.
-    - Daily by default
-    - If no publish for >= 3 days: escalate to 3-day
-    - If no publish for >= 7 days: escalate to weekly
+    """Decide which cadence bucket applies based on content readiness first, then time spacing.
+    Priority:
+      1) If threshold met for Daily, choose Daily
+      2) Else if threshold met for 3-Day, choose 3-Day
+      3) Else choose Weekly
     """
-    last_episode = (
-        db.query(Episode)
-        .filter(Episode.group_id == group.id, Episode.status == EpisodeStatus.PUBLISHED)
-        .order_by(Episode.created_at.desc())
-        .first()
-    )
+    ready_collections = [c for c in _get_ready_collections() if str(c.get("group_id")) == str(group.id)]
+    min_threshold = MIN_FEEDS_THRESHOLD_DEFAULT
 
-    if not last_episode:
+    has_daily = any(_count_items(c, "feed") >= min_threshold for c in ready_collections)
+    if has_daily:
         return CADENCE_BUCKETS[0]
 
-    days_since_last = (datetime.utcnow() - last_episode.created_at.replace(tzinfo=None)).days
-    if days_since_last >= 7:
-        return CADENCE_BUCKETS[2]
-    if days_since_last >= 3:
+    # Assume 3-day may allow bundling; still require same threshold at collection level
+    has_three_day = any(_count_items(c, "feed") >= min_threshold for c in ready_collections)
+    if has_three_day:
         return CADENCE_BUCKETS[1]
-    return CADENCE_BUCKETS[0]
+
+    return CADENCE_BUCKETS[2]
 
 
 def _should_release_now_for_bucket(last_episode_time: Optional[datetime], bucket_days: int) -> bool:
@@ -156,7 +154,17 @@ def generate_episode_for_group(self, group_id: str) -> Dict[str, Any]:
         
         # Generate episode (run async function in sync context)
         import asyncio
-        result = asyncio.run(generation_service.generate_complete_episode(UUID(group_id)))
+        # If a preferred collection was attached to the task request, pass it through
+        preferred_collection_id = None
+        try:
+            req_kwargs = getattr(self.request, 'kwargs', {}) or {}
+            preferred_collection_id = req_kwargs.get('collection_id')
+        except Exception:
+            preferred_collection_id = None
+
+        result = asyncio.run(
+            generation_service.generate_complete_episode(UUID(group_id), collection_id=preferred_collection_id)
+        )
         
         logger.info(f"Episode generation completed for group {group_id}")
         return {
@@ -252,7 +260,10 @@ def check_scheduled_groups():
                         "reason": "selected_top_ranked_ready_collection"
                     }
                 )
-                generate_episode_for_group.delay(str(group.id))
+                # Pass selected collection id through to episode generation task
+                generate_episode_for_group.apply_async(args=[str(group.id)], kwargs={
+                    "collection_id": collection.get("collection_id")
+                })
                 
         finally:
             db.close()

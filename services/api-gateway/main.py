@@ -31,6 +31,10 @@ from shared.schemas import (
     GenerationResponse,
     HealthCheck
 )
+from fastapi import Body
+
+import os
+import subprocess
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -49,7 +53,8 @@ SERVICE_URLS = {
     "writer": "http://writer:8003",
     "presenter": "http://presenter:8004",
     "publishing": "http://publishing:8005",
-    "ai-overseer": "http://ai-overseer:8006"
+    "ai-overseer": "http://ai-overseer:8006",
+    "reviewer": "http://reviewer:8008",
 }
 
 # Create tables on startup
@@ -193,6 +198,41 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
 async def groups_page(request: Request):
     """Render the Podcast Groups management UI (data fetched client-side)."""
     return templates.TemplateResponse("groups.html", {"request": request})
+
+
+# Reviewer Dashboard Page
+@app.get("/reviewer", response_class=HTMLResponse)
+async def reviewer_dashboard(request: Request):
+    """Render the Reviewer Dashboard UI."""
+    return templates.TemplateResponse("reviewer-dashboard.html", {"request": request})
+
+
+# Presenter Management Page
+@app.get("/presenters", response_class=HTMLResponse)
+async def presenter_management(request: Request):
+    """Render the Presenter Management UI."""
+    return templates.TemplateResponse("presenter-management.html", {"request": request})
+
+
+# Episodes Page
+@app.get("/episodes", response_class=HTMLResponse)
+async def episodes_page(request: Request):
+    """Render the Episodes UI."""
+    return templates.TemplateResponse("episodes.html", {"request": request})
+
+
+# News Feed Dashboard Page
+@app.get("/news-feed", response_class=HTMLResponse)
+async def news_feed_dashboard(request: Request):
+    """Render the News Feed Dashboard UI."""
+    return templates.TemplateResponse("news-feed-dashboard.html", {"request": request})
+
+
+# Collections Dashboard Page
+@app.get("/collections", response_class=HTMLResponse)
+async def collections_dashboard(request: Request):
+    """Render the Collections Dashboard UI."""
+    return templates.TemplateResponse("collections-dashboard.html", {"request": request})
 
 
 # Management endpoints
@@ -457,6 +497,51 @@ async def list_episodes(
     return query.order_by(Episode.created_at.desc()).limit(limit).all()
 
 
+@app.get("/api/episodes-simple")
+async def list_episodes_simple(
+    group_id: Optional[UUID] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """List episodes with simple data (no complex relationships)."""
+    query = db.query(Episode)
+    
+    if group_id:
+        query = query.filter(Episode.group_id == group_id)
+    
+    if status:
+        try:
+            from shared.models import EpisodeStatus
+            episode_status = EpisodeStatus(status)
+            query = query.filter(Episode.status == episode_status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    
+    episodes = query.order_by(Episode.created_at.desc()).limit(limit).all()
+    
+    # Convert to simple format
+    simple_episodes = []
+    for episode in episodes:
+        # Get group name
+        group_name = "Unknown"
+        if episode.group_id:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == episode.group_id).first()
+            if group:
+                group_name = group.name
+        
+        simple_episodes.append({
+            "id": str(episode.id),
+            "group_id": str(episode.group_id) if episode.group_id else None,
+            "group_name": group_name,
+            "status": episode.status.value if episode.status else "unknown",
+            "created_at": episode.created_at.isoformat() if episode.created_at else None,
+            "updated_at": episode.updated_at.isoformat() if episode.updated_at else None
+        })
+    
+    return simple_episodes
+
+
 @app.get("/api/episodes/{episode_id}", response_model=EpisodeSchema)
 async def get_episode(
     episode_id: UUID,
@@ -474,6 +559,53 @@ async def get_episode(
 async def list_presenters(db: Session = Depends(get_db)):
     """List all presenters."""
     return db.query(Presenter).all()
+
+
+@app.get("/api/presenters/{presenter_id}", response_model=PresenterSchema)
+async def get_presenter(
+    presenter_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Get a specific presenter."""
+    presenter = db.query(Presenter).filter(Presenter.id == presenter_id).first()
+    if not presenter:
+        raise HTTPException(status_code=404, detail="Presenter not found")
+    return presenter
+
+
+@app.put("/api/presenters/{presenter_id}", response_model=PresenterSchema)
+async def update_presenter(
+    presenter_id: UUID,
+    presenter_data: PresenterCreate,
+    db: Session = Depends(get_db)
+):
+    """Update a presenter."""
+    presenter = db.query(Presenter).filter(Presenter.id == presenter_id).first()
+    if not presenter:
+        raise HTTPException(status_code=404, detail="Presenter not found")
+    
+    update_data = presenter_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(presenter, field, value)
+    
+    db.commit()
+    db.refresh(presenter)
+    return presenter
+
+
+@app.delete("/api/presenters/{presenter_id}")
+async def delete_presenter(
+    presenter_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Delete a presenter."""
+    presenter = db.query(Presenter).filter(Presenter.id == presenter_id).first()
+    if not presenter:
+        raise HTTPException(status_code=404, detail="Presenter not found")
+    
+    db.delete(presenter)
+    db.commit()
+    return {"message": "Presenter deleted successfully"}
 
 
 @app.post("/api/presenters", response_model=PresenterSchema)
@@ -532,6 +664,196 @@ async def get_system_stats(db: Session = Depends(get_db)):
     """Get system statistics."""
     # Get stats from AI Overseer
     return await call_service("ai-overseer", "GET", "/stats")
+
+
+# Reviewer proxy endpoints
+@app.get("/api/reviewer/config")
+async def get_reviewer_config():
+    return await call_service("reviewer", "GET", "/config")
+
+
+@app.put("/api/reviewer/config")
+async def put_reviewer_config(payload: Dict[str, Any] = Body(...)):
+    return await call_service("reviewer", "PUT", "/config", json=payload)
+
+
+@app.get("/api/reviewer/metrics")
+async def get_reviewer_metrics():
+    return await call_service("reviewer", "GET", "/metrics")
+
+
+@app.post("/api/reviewer/scale/light")
+async def scale_light_reviewer(workers: int = Body(embed=True, default=1)):
+    # Store desired count in reviewer config; external process handles applying scale
+    await call_service("reviewer", "PUT", "/config", json={"light_workers": workers})
+    return {"status": "ok", "workers": workers}
+
+
+@app.get("/api/overseer/duplicates")
+async def get_overseer_duplicates(since: str):
+    return await call_service("ai-overseer", "GET", f"/api/overseer/duplicates?since={since}")
+
+
+# News Feed API endpoints
+@app.get("/api/news-feed/stats")
+async def get_news_feed_stats(db: Session = Depends(get_db)):
+    """Get news feed statistics."""
+    from shared.models import NewsFeed, Article
+    from datetime import datetime, timedelta
+    
+    # Get total feeds
+    total_feeds = db.query(NewsFeed).count()
+    
+    # Get active feeds
+    active_feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).count()
+    
+    # Get articles from today
+    today = datetime.now().date()
+    articles_today = db.query(Article).filter(
+        Article.created_at >= today
+    ).count()
+    
+    # Get last fetch time
+    last_feed = db.query(NewsFeed).filter(
+        NewsFeed.last_fetched.isnot(None)
+    ).order_by(NewsFeed.last_fetched.desc()).first()
+    
+    last_fetch = last_feed.last_fetched.isoformat() if last_feed and last_feed.last_fetched else None
+    
+    return {
+        "total_feeds": total_feeds,
+        "active_feeds": active_feeds,
+        "articles_today": articles_today,
+        "last_fetch": last_fetch
+    }
+
+
+@app.get("/api/news-feed/recent-articles")
+async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
+    """Get recent articles from all feeds."""
+    from shared.models import Article, NewsFeed
+    
+    articles = db.query(Article).join(NewsFeed).order_by(
+        Article.created_at.desc()
+    ).limit(limit).all()
+    
+    result = []
+    for article in articles:
+        feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+        result.append({
+            "id": str(article.id),
+            "title": article.title,
+            "link": article.link,
+            "summary": article.summary,
+            "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+            "feed_name": feed.name if feed else "Unknown Feed",
+            "reviewer_type": article.reviewer_type,
+            "confidence": article.confidence
+        })
+    
+    return result
+
+
+# Collections API endpoints
+@app.get("/api/collections/stats")
+async def get_collections_stats(db: Session = Depends(get_db)):
+    """Get collections statistics."""
+    from shared.models import Collection, Article
+    
+    # Get total collections
+    total_collections = db.query(Collection).count()
+    
+    # Get ready collections
+    ready_collections = db.query(Collection).filter(Collection.status == "ready").count()
+    
+    # Get processing collections
+    processing_collections = db.query(Collection).filter(Collection.status == "processing").count()
+    
+    # Get total articles in collections
+    total_articles = db.query(Article).join(Collection).count()
+    
+    return {
+        "total_collections": total_collections,
+        "ready_collections": ready_collections,
+        "processing_collections": processing_collections,
+        "total_articles": total_articles
+    }
+
+
+@app.get("/api/collections")
+async def list_collections(db: Session = Depends(get_db)):
+    """List all collections."""
+    from shared.models import Collection, PodcastGroup
+    
+    collections = db.query(Collection).all()
+    
+    result = []
+    for collection in collections:
+        # Get group name
+        group_name = "Unknown Group"
+        if collection.group_id:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == collection.group_id).first()
+            if group:
+                group_name = group.name
+        
+        # Get article count
+        article_count = db.query(Article).filter(Article.collection_id == collection.id).count()
+        
+        result.append({
+            "id": str(collection.id),
+            "group_id": str(collection.group_id) if collection.group_id else None,
+            "group_name": group_name,
+            "status": collection.status,
+            "article_count": article_count,
+            "created_at": collection.created_at.isoformat() if collection.created_at else None,
+            "updated_at": collection.updated_at.isoformat() if collection.updated_at else None
+        })
+    
+    return result
+
+
+@app.get("/api/collections/{collection_id}")
+async def get_collection(collection_id: UUID, db: Session = Depends(get_db)):
+    """Get a specific collection with its articles."""
+    from shared.models import Collection, Article, NewsFeed, PodcastGroup
+    
+    collection = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    # Get group name
+    group_name = "Unknown Group"
+    if collection.group_id:
+        group = db.query(PodcastGroup).filter(PodcastGroup.id == collection.group_id).first()
+        if group:
+            group_name = group.name
+    
+    # Get articles
+    articles = db.query(Article).filter(Article.collection_id == collection.id).all()
+    
+    article_list = []
+    for article in articles:
+        feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+        article_list.append({
+            "id": str(article.id),
+            "title": article.title,
+            "link": article.link,
+            "summary": article.summary,
+            "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+            "feed_name": feed.name if feed else "Unknown Feed",
+            "reviewer_type": article.reviewer_type,
+            "confidence": article.confidence
+        })
+    
+    return {
+        "id": str(collection.id),
+        "group_id": str(collection.group_id) if collection.group_id else None,
+        "group_name": group_name,
+        "status": collection.status,
+        "created_at": collection.created_at.isoformat() if collection.created_at else None,
+        "updated_at": collection.updated_at.isoformat() if collection.updated_at else None,
+        "articles": article_list
+    }
 
 
 @app.post("/api/admin/cleanup")

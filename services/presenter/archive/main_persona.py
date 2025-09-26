@@ -318,7 +318,7 @@ Write this as if you're reviewing a script that you might present. Be authentic 
                 if expertise_match:
                     brief += f"This is right in my wheelhouse of {', '.join(presenter.expertise)}. "
             
-            brief += f"The story touches on {article.get('summary', 'various topics')[:100]}... This is significant because it shows how interconnected our world has become.
+            brief += f"""The story touches on {article.get('summary', 'various topics')[:100]}... This is significant because it shows how interconnected our world has become.
 
 """
         

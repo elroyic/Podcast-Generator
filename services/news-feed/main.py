@@ -1,5 +1,6 @@
 """
 News Feed Service - Handles RSS/MCP feed fetching and article storage.
+Enhanced with Redis-backed deduplication fingerprints to reduce reviewer load.
 """
 import asyncio
 import logging
@@ -12,6 +13,9 @@ import httpx
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+import os
+import hashlib
+import redis
 
 from shared.database import get_db, create_tables
 from shared.models import NewsFeed, Article, FeedType
@@ -28,6 +32,13 @@ app = FastAPI(title="News Feed Service", version="1.0.0")
 async def startup_event():
     create_tables()
     logger.info("News Feed Service started")
+    # Initialize Redis for deduplication metrics
+    global redis_client
+    try:
+        redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+    except Exception as e:
+        redis_client = None
+        logger.warning(f"Redis unavailable for dedup: {e}")
 
 
 class NewsFeedProcessor:
@@ -313,7 +324,7 @@ async def fetch_feed_articles(feed_id: UUID):
             logger.error(f"Unknown feed type: {feed.type}")
             return
         
-        # Store new articles
+        # Store new articles with deduplication
         new_articles_count = 0
         for article_data in articles_data:
             # Check if article already exists
@@ -325,16 +336,53 @@ async def fetch_feed_articles(feed_id: UUID):
             ).first()
             
             if not existing:
-                article = Article(
-                    feed_id=feed_id,
-                    title=article_data["title"],
-                    link=article_data["link"],
-                    summary=article_data["summary"],
-                    content=article_data["content"],
-                    publish_date=article_data["publish_date"]
-                )
-                db.add(article)
-                new_articles_count += 1
+                # Compute fingerprint and check Redis set
+                try:
+                    pub_iso = article_data.get("publish_date").isoformat() if article_data.get("publish_date") else ""
+                except Exception:
+                    pub_iso = ""
+                fp_src = f"{article_data['link']}|{article_data['title']}|{pub_iso}"
+                fp = hashlib.sha256(fp_src.encode("utf-8", errors="ignore")).hexdigest()
+
+                allow_insert = True
+                try:
+                    dedup_enabled = os.getenv("DEDUP_ENABLED", "true").lower() in ("1", "true", "yes")
+                    if dedup_enabled and redis_client:
+                        fp_key = "reviewer:fingerprints"
+                        if redis_client.sismember(fp_key, fp):
+                            # Record duplicate event timestamp for metrics windowing
+                            try:
+                                redis_client.lpush("reviewer:duplicates:events", str(int(datetime.utcnow().timestamp())))
+                                redis_client.ltrim("reviewer:duplicates:events", 0, 99999)
+                            except Exception:
+                                pass
+                            logger.info(f"Duplicate filtered (fingerprint) for link={article_data['link']}")
+                            allow_insert = False
+                        else:
+                            redis_client.sadd(fp_key, fp)
+                            # Ensure TTL on the set key (approximate)
+                            try:
+                                redis_client.expire(fp_key, int(os.getenv("DEDUP_TTL", "2592000")))
+                            except Exception:
+                                pass
+                except Exception as e:
+                    logger.warning(f"Dedup check failed; proceeding: {e}")
+
+                if allow_insert:
+                    article = Article(
+                        feed_id=feed_id,
+                        title=article_data["title"],
+                        link=article_data["link"],
+                        summary=article_data["summary"],
+                        content=article_data["content"],
+                        publish_date=article_data["publish_date"]
+                    )
+                    try:
+                        article.fingerprint = fp
+                    except Exception:
+                        pass
+                    db.add(article)
+                    new_articles_count += 1
         
         # Update last_fetched timestamp
         feed.last_fetched = datetime.utcnow()

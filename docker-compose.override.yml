@@ -10,9 +10,10 @@ services:
       context: .
       dockerfile: services/reviewer/Dockerfile
     ports:
-      - 8007:8007
+      - 8013:8008
     environment:
       - PYTHONPATH=/app
+      - PORT=8008
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
@@ -50,7 +51,7 @@ services:
       context: .
       dockerfile: services/collections/Dockerfile
     ports:
-      - 8011:8011
+      - 8014:8011
     depends_on:
       - postgres
     volumes:

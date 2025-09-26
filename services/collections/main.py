@@ -1,19 +1,20 @@
 """
-Collections Service - Manages collections of feeds, reviews, and content.
-Collections belong to Podcast Groups and contain feeds, reviewer output, presenter output, and writer output.
+Collections Service - Manages feed grouping, review aggregation, and collection readiness.
+Handles the workflow from individual feeds to complete collections ready for podcast generation.
 """
 import logging
 import os
-from datetime import datetime
-from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
+import httpx
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Article, NewsFeed
+from shared.models import Article, NewsFeed, PodcastGroup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,72 +22,77 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Collections Service", version="1.0.0")
 
+# Configuration
+REVIEWER_URL = os.getenv("REVIEWER_URL", "http://reviewer:8007")
+MIN_FEEDS_PER_COLLECTION = int(os.getenv("MIN_FEEDS_PER_COLLECTION", "3"))
+COLLECTION_TTL_HOURS = int(os.getenv("COLLECTION_TTL_HOURS", "24"))
+
 
 class CollectionItem(BaseModel):
-    """Individual item in a collection."""
+    """An item within a collection."""
     item_id: str
-    item_type: str  # "feed", "review", "brief", "script", "feedback"
+    item_type: str  # "feed", "review", "brief", "script"
     content: Dict[str, Any]
     created_at: datetime
-    metadata: Dict[str, Any]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Collection(BaseModel):
-    """Collection of content for podcast generation."""
+    """A collection of related content."""
     collection_id: str
-    group_id: UUID
-    name: str
-    description: Optional[str] = None
-    status: str = "building"  # building, ready, processing, completed
-    items: List[CollectionItem] = []
+    group_id: str
+    status: str  # "building", "ready", "used", "expired"
+    items: List[CollectionItem]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
-    metadata: Dict[str, Any] = {}
+    expires_at: Optional[datetime] = None
 
 
 class CollectionCreate(BaseModel):
     """Request to create a new collection."""
-    group_id: UUID
-    name: str
-    description: Optional[str] = None
+    group_id: str
+    priority_tags: List[str] = Field(default_factory=list)
+    max_items: int = 10
 
 
 class CollectionUpdate(BaseModel):
     """Request to update a collection."""
-    name: Optional[str] = None
-    description: Optional[str] = None
     status: Optional[str] = None
-
-
-class AddItemRequest(BaseModel):
-    """Request to add an item to a collection."""
-    collection_id: str
-    item_type: str
-    content: Dict[str, Any]
     metadata: Optional[Dict[str, Any]] = None
 
 
-class CollectionManager:
-    """Handles collection management logic."""
+class CollectionResponse(BaseModel):
+    """Response for collection operations."""
+    collection: Collection
+    message: str
+
+
+class CollectionsManager:
+    """Manages collections and their lifecycle."""
     
     def __init__(self):
-        # In-memory storage for collections (in production, use database)
         self.collections: Dict[str, Collection] = {}
+        self.reviewer_client = httpx.AsyncClient(timeout=30.0)
     
-    def create_collection(self, request: CollectionCreate) -> Collection:
-        """Create a new collection."""
+    async def create_collection(self, request: CollectionCreate) -> Collection:
+        """Create a new collection for a podcast group."""
         collection_id = str(uuid4())
+        expires_at = datetime.utcnow() + timedelta(hours=COLLECTION_TTL_HOURS)
         
         collection = Collection(
             collection_id=collection_id,
             group_id=request.group_id,
-            name=request.name,
-            description=request.description,
             status="building",
             items=[],
+            metadata={
+                "priority_tags": request.priority_tags,
+                "max_items": request.max_items,
+                "min_feeds_required": MIN_FEEDS_PER_COLLECTION
+            },
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
-            metadata={}
+            expires_at=expires_at
         )
         
         self.collections[collection_id] = collection
@@ -94,91 +100,164 @@ class CollectionManager:
         
         return collection
     
+    async def add_feed_to_collection(self, collection_id: str, article: Article) -> bool:
+        """Add a feed item to a collection."""
+        if collection_id not in self.collections:
+            return False
+        
+        collection = self.collections[collection_id]
+        
+        # Check if collection is still building and not expired
+        if collection.status != "building" or (collection.expires_at and datetime.utcnow() > collection.expires_at):
+            return False
+        
+        # Create feed item
+        feed_item = CollectionItem(
+            item_id=str(uuid4()),
+            item_type="feed",
+            content={
+                "title": article.title,
+                "link": article.link,
+                "summary": article.summary,
+                "content": article.content,
+                "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+                "source": article.news_feed.name if article.news_feed else "Unknown"
+            },
+            created_at=datetime.utcnow(),
+            metadata={
+                "article_id": str(article.id),
+                "feed_id": str(article.feed_id)
+            }
+        )
+        
+        collection.items.append(feed_item)
+        collection.updated_at = datetime.utcnow()
+        
+        # Auto-review the feed if we have a reviewer
+        try:
+            await self._auto_review_feed(collection_id, feed_item)
+        except Exception as e:
+            logger.warning(f"Auto-review failed for feed {feed_item.item_id}: {e}")
+        
+        logger.info(f"Added feed to collection {collection_id}: {article.title[:50]}...")
+        return True
+    
+    async def _auto_review_feed(self, collection_id: str, feed_item: CollectionItem):
+        """Automatically review a feed item and add review to collection."""
+        try:
+            # Call reviewer service
+            review_request = {
+                "feed_id": feed_item.item_id,
+                "title": feed_item.content["title"],
+                "url": feed_item.content["link"],
+                "content": feed_item.content.get("content", ""),
+                "published": feed_item.content.get("publish_date", "")
+            }
+            
+            response = await self.reviewer_client.post(
+                f"{REVIEWER_URL}/review",
+                json=review_request
+            )
+            response.raise_for_status()
+            review_data = response.json()
+            
+            # Create review item
+            review_item = CollectionItem(
+                item_id=str(uuid4()),
+                item_type="review",
+                content={
+                    "tags": review_data.get("tags", []),
+                    "summary": review_data.get("summary", ""),
+                    "confidence": review_data.get("confidence", 0.0),
+                    "model": review_data.get("model", "unknown"),
+                    "reviewer_type": review_data.get("reviewer_type", "unknown")
+                },
+                created_at=datetime.utcnow(),
+                metadata={
+                    "feed_item_id": feed_item.item_id,
+                    "review_timestamp": datetime.utcnow().isoformat()
+                }
+            )
+            
+            collection = self.collections[collection_id]
+            collection.items.append(review_item)
+            collection.updated_at = datetime.utcnow()
+            
+            logger.info(f"Added review to collection {collection_id}: confidence={review_data.get('confidence', 0.0):.2f}")
+            
+        except Exception as e:
+            logger.error(f"Failed to auto-review feed: {e}")
+    
     def get_collection(self, collection_id: str) -> Optional[Collection]:
         """Get a collection by ID."""
         return self.collections.get(collection_id)
     
-    def update_collection(self, collection_id: str, request: CollectionUpdate) -> Optional[Collection]:
-        """Update a collection."""
-        collection = self.collections.get(collection_id)
-        if not collection:
-            return None
+    def get_ready_collections(self, group_id: Optional[str] = None) -> List[Collection]:
+        """Get collections that are ready for podcast generation."""
+        ready_collections = []
         
-        if request.name is not None:
-            collection.name = request.name
-        if request.description is not None:
-            collection.description = request.description
-        if request.status is not None:
-            collection.status = request.status
+        for collection in self.collections.values():
+            if collection.status != "ready":
+                continue
+            
+            if group_id and collection.group_id != group_id:
+                continue
+            
+            # Check if collection has minimum required feeds
+            feed_count = sum(1 for item in collection.items if item.item_type == "feed")
+            if feed_count >= MIN_FEEDS_PER_COLLECTION:
+                ready_collections.append(collection)
         
-        collection.updated_at = datetime.utcnow()
-        
-        logger.info(f"Updated collection {collection_id}")
-        return collection
+        return ready_collections
     
-    def add_item_to_collection(self, request: AddItemRequest) -> Optional[Collection]:
-        """Add an item to a collection."""
-        collection = self.collections.get(request.collection_id)
-        if not collection:
-            return None
+    def mark_collection_ready(self, collection_id: str) -> bool:
+        """Mark a collection as ready for podcast generation."""
+        if collection_id not in self.collections:
+            return False
         
-        item = CollectionItem(
-            item_id=str(uuid4()),
-            item_type=request.item_type,
-            content=request.content,
-            created_at=datetime.utcnow(),
-            metadata=request.metadata or {}
-        )
+        collection = self.collections[collection_id]
+        feed_count = sum(1 for item in collection.items if item.item_type == "feed")
         
-        collection.items.append(item)
-        collection.updated_at = datetime.utcnow()
-        
-        # Update collection status based on content
-        self._update_collection_status(collection)
-        
-        logger.info(f"Added {request.item_type} item to collection {request.collection_id}")
-        return collection
-    
-    def _update_collection_status(self, collection: Collection):
-        """Update collection status based on its contents."""
-        item_types = [item.item_type for item in collection.items]
-        
-        # Check if collection has minimum required items (3 feeds + summaries as per workflow)
-        feed_count = item_types.count("feed")
-        review_count = item_types.count("review")
-        
-        if feed_count >= 3 and review_count >= 3:
+        if feed_count >= MIN_FEEDS_PER_COLLECTION:
             collection.status = "ready"
-        elif feed_count > 0 or review_count > 0:
-            collection.status = "building"
-        else:
-            collection.status = "empty"
-    
-    def get_collections_by_group(self, group_id: UUID) -> List[Collection]:
-        """Get all collections for a podcast group."""
-        return [
-            collection for collection in self.collections.values()
-            if collection.group_id == group_id
-        ]
-    
-    def get_ready_collections(self) -> List[Collection]:
-        """Get all collections that are ready for processing."""
-        return [
-            collection for collection in self.collections.values()
-            if collection.status == "ready"
-        ]
-    
-    def delete_collection(self, collection_id: str) -> bool:
-        """Delete a collection."""
-        if collection_id in self.collections:
-            del self.collections[collection_id]
-            logger.info(f"Deleted collection {collection_id}")
+            collection.updated_at = datetime.utcnow()
+            logger.info(f"Marked collection {collection_id} as ready with {feed_count} feeds")
             return True
+        
         return False
+    
+    def mark_collection_used(self, collection_id: str) -> bool:
+        """Mark a collection as used (for podcast generation)."""
+        if collection_id not in self.collections:
+            return False
+        
+        collection = self.collections[collection_id]
+        collection.status = "used"
+        collection.updated_at = datetime.utcnow()
+        logger.info(f"Marked collection {collection_id} as used")
+        return True
+    
+    def cleanup_expired_collections(self):
+        """Remove expired collections."""
+        now = datetime.utcnow()
+        expired_ids = []
+        
+        for collection_id, collection in self.collections.items():
+            if collection.expires_at and now > collection.expires_at:
+                expired_ids.append(collection_id)
+        
+        for collection_id in expired_ids:
+            del self.collections[collection_id]
+            logger.info(f"Cleaned up expired collection {collection_id}")
+    
+    def get_collections_for_group(self, group_id: str) -> List[Collection]:
+        """Get all collections for a specific group."""
+        return [c for c in self.collections.values() if c.group_id == group_id]
 
 
-# Initialize services
-collection_manager = CollectionManager()
+# Initialize collections manager
+collections_manager = CollectionsManager()
+
 
 # Create tables on startup
 @app.on_event("startup")
@@ -190,170 +269,161 @@ async def startup_event():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "collections", "timestamp": datetime.utcnow()}
+    return {
+        "status": "healthy",
+        "service": "collections",
+        "collections_count": len(collections_manager.collections),
+        "timestamp": datetime.utcnow()
+    }
 
 
-@app.post("/collections", response_model=Collection)
-async def create_collection(
-    request: CollectionCreate,
-    db: Session = Depends(get_db)
-):
+@app.post("/collections", response_model=CollectionResponse)
+async def create_collection(request: CollectionCreate):
     """Create a new collection."""
+    collection = await collections_manager.create_collection(request)
     
-    # Verify podcast group exists
-    group = db.query(PodcastGroup).filter(PodcastGroup.id == request.group_id).first()
-    if not group:
-        raise HTTPException(status_code=404, detail="Podcast group not found")
-    
-    try:
-        collection = collection_manager.create_collection(request)
-        return collection
-        
-    except Exception as e:
-        logger.error(f"Error creating collection: {e}")
-        raise HTTPException(status_code=500, detail=f"Collection creation failed: {str(e)}")
+    return CollectionResponse(
+        collection=collection,
+        message=f"Collection {collection.collection_id} created successfully"
+    )
 
 
 @app.get("/collections/{collection_id}", response_model=Collection)
 async def get_collection(collection_id: str):
     """Get a specific collection."""
-    collection = collection_manager.get_collection(collection_id)
+    collection = collections_manager.get_collection(collection_id)
     if not collection:
         raise HTTPException(status_code=404, detail="Collection not found")
+    
     return collection
 
 
-@app.put("/collections/{collection_id}", response_model=Collection)
-async def update_collection(
-    collection_id: str,
-    request: CollectionUpdate
+@app.get("/collections", response_model=List[Collection])
+async def list_collections(
+    group_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50
 ):
+    """List collections with optional filtering."""
+    collections = list(collections_manager.collections.values())
+    
+    if group_id:
+        collections = [c for c in collections if c.group_id == group_id]
+    
+    if status:
+        collections = [c for c in collections if c.status == status]
+    
+    # Sort by updated_at descending
+    collections.sort(key=lambda x: x.updated_at, reverse=True)
+    
+    return collections[:limit]
+
+
+@app.get("/collections/ready", response_model=List[Collection])
+async def get_ready_collections(group_id: Optional[str] = None):
+    """Get collections that are ready for podcast generation."""
+    return collections_manager.get_ready_collections(group_id)
+
+
+@app.put("/collections/{collection_id}", response_model=CollectionResponse)
+async def update_collection(collection_id: str, request: CollectionUpdate):
     """Update a collection."""
-    collection = collection_manager.update_collection(collection_id, request)
+    collection = collections_manager.get_collection(collection_id)
     if not collection:
         raise HTTPException(status_code=404, detail="Collection not found")
-    return collection
+    
+    if request.status:
+        collection.status = request.status
+    
+    if request.metadata:
+        collection.metadata.update(request.metadata)
+    
+    collection.updated_at = datetime.utcnow()
+    
+    return CollectionResponse(
+        collection=collection,
+        message=f"Collection {collection_id} updated successfully"
+    )
+
+
+@app.post("/collections/{collection_id}/feeds/{article_id}")
+async def add_feed_to_collection(
+    collection_id: str,
+    article_id: str,
+    db: Session = Depends(get_db)
+):
+    """Add a feed to a collection."""
+    # Get article from database
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    
+    success = await collections_manager.add_feed_to_collection(collection_id, article)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to add feed to collection")
+    
+    return {"message": f"Feed {article_id} added to collection {collection_id}"}
+
+
+@app.post("/collections/{collection_id}/ready")
+async def mark_collection_ready(collection_id: str):
+    """Mark a collection as ready for podcast generation."""
+    success = collections_manager.mark_collection_ready(collection_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Collection does not meet minimum requirements")
+    
+    return {"message": f"Collection {collection_id} marked as ready"}
+
+
+@app.post("/collections/{collection_id}/used")
+async def mark_collection_used(collection_id: str):
+    """Mark a collection as used."""
+    success = collections_manager.mark_collection_used(collection_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    return {"message": f"Collection {collection_id} marked as used"}
 
 
 @app.delete("/collections/{collection_id}")
 async def delete_collection(collection_id: str):
     """Delete a collection."""
-    success = collection_manager.delete_collection(collection_id)
-    if not success:
+    if collection_id not in collections_manager.collections:
         raise HTTPException(status_code=404, detail="Collection not found")
-    return {"message": "Collection deleted successfully"}
+    
+    del collections_manager.collections[collection_id]
+    return {"message": f"Collection {collection_id} deleted successfully"}
 
 
-@app.post("/collections/{collection_id}/items", response_model=Collection)
-async def add_item_to_collection(
-    collection_id: str,
-    request: AddItemRequest
-):
-    """Add an item to a collection."""
-    request.collection_id = collection_id  # Ensure consistency
-    collection = collection_manager.add_item_to_collection(request)
-    if not collection:
-        raise HTTPException(status_code=404, detail="Collection not found")
-    return collection
+@app.post("/collections/cleanup")
+async def cleanup_expired_collections(background_tasks: BackgroundTasks):
+    """Trigger cleanup of expired collections."""
+    background_tasks.add_task(collections_manager.cleanup_expired_collections)
+    return {"message": "Cleanup task queued"}
 
 
 @app.get("/collections/group/{group_id}", response_model=List[Collection])
-async def get_collections_by_group(group_id: UUID):
-    """Get all collections for a podcast group."""
-    collections = collection_manager.get_collections_by_group(group_id)
-    return collections
+async def get_collections_for_group(group_id: str):
+    """Get all collections for a specific group."""
+    return collections_manager.get_collections_for_group(group_id)
 
 
-@app.get("/collections/ready", response_model=List[Collection])
-async def get_ready_collections():
-    """Get all collections that are ready for processing."""
-    collections = collection_manager.get_ready_collections()
-    return collections
-
-
-@app.get("/collections", response_model=List[Collection])
-async def list_all_collections():
-    """List all collections."""
-    return list(collection_manager.collections.values())
-
-
-@app.post("/test-collection-creation")
-async def test_collection_creation(
-    group_name: str = "Test Podcast Group",
-    collection_name: str = "Test Collection",
-    db: Session = Depends(get_db)
-):
-    """Test endpoint for collection creation."""
+@app.get("/collections/stats")
+async def get_collections_stats():
+    """Get collections statistics."""
+    total_collections = len(collections_manager.collections)
+    status_counts = {}
     
-    try:
-        # Create a test podcast group
-        test_group = PodcastGroup(
-            id=UUID("00000000-0000-0000-0000-000000000001"),
-            name=group_name,
-            description="Test podcast group for collection testing",
-            category="Technology",
-            language="en",
-            country="US"
-        )
-        
-        # Create test collection
-        collection_request = CollectionCreate(
-            group_id=test_group.id,
-            name=collection_name,
-            description="Test collection for demonstration"
-        )
-        
-        collection = collection_manager.create_collection(collection_request)
-        
-        # Add some test items
-        test_items = [
-            {
-                "item_type": "feed",
-                "content": {
-                    "title": "Test Article 1",
-                    "summary": "This is a test article about technology",
-                    "source": "Test Source"
-                }
-            },
-            {
-                "item_type": "review",
-                "content": {
-                    "topic": "Technology",
-                    "subject": "AI/ML",
-                    "tags": ["technology", "ai", "innovation"],
-                    "importance_rank": 8
-                }
-            },
-            {
-                "item_type": "brief",
-                "content": {
-                    "presenter_name": "Test Presenter",
-                    "brief": "This is a test brief from a presenter"
-                }
-            }
-        ]
-        
-        for item_data in test_items:
-            add_request = AddItemRequest(
-                collection_id=collection.collection_id,
-                item_type=item_data["item_type"],
-                content=item_data["content"]
-            )
-            collection = collection_manager.add_item_to_collection(add_request)
-        
-        return {
-            "test_group": {
-                "id": str(test_group.id),
-                "name": test_group.name,
-                "description": test_group.description
-            },
-            "created_collection": collection.dict(),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in test collection creation: {e}")
-        raise HTTPException(status_code=500, detail=f"Test collection creation failed: {str(e)}")
+    for collection in collections_manager.collections.values():
+        status = collection.status
+        status_counts[status] = status_counts.get(status, 0) + 1
+    
+    return {
+        "total_collections": total_collections,
+        "status_counts": status_counts,
+        "min_feeds_required": MIN_FEEDS_PER_COLLECTION,
+        "collection_ttl_hours": COLLECTION_TTL_HOURS
+    }
 
 
 if __name__ == "__main__":

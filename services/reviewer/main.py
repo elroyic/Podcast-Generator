@@ -705,7 +705,8 @@ async def review_article_background(article_id: UUID):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8007)
+    port = int(os.getenv("PORT", "8007"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 # Helper functions (module-level)
