@@ -123,9 +123,10 @@ EDITING PRINCIPLES:
 - Ensure smooth transitions between topics
 - Balance information density with entertainment value
 - Keep language accessible to general audiences
-- Maintain consistent tone throughout
+- Maintain consistent tone throughout while having moments of humour and excitement
 - Add engaging hooks and conclusions
 - Ensure proper pacing for audio consumption
+- No URL's are you be included in the final script
 
 REVIEW CRITERIA:
 - Length: Is it appropriate for the target duration?

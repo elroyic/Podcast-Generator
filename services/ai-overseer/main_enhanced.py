@@ -23,14 +23,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Overseer Service (Enhanced)", version="1.0.0")
 
-# Service URLs
+# Service URLs (container-to-container)
 REVIEWER_SERVICE_URL = "http://reviewer:8007"
-PRESENTER_SERVICE_URL = "http://presenter:8008"
-WRITER_SERVICE_URL = "http://writer:8010"
+PRESENTER_SERVICE_URL = "http://presenter-persona:8008"
+WRITER_SERVICE_URL = "http://writer-script:8010"
 EDITOR_SERVICE_URL = "http://editor:8009"
 COLLECTIONS_SERVICE_URL = "http://collections:8011"
 NEWS_FEED_SERVICE_URL = "http://news-feed:8001"
-PRESENTER_AUDIO_SERVICE_URL = "http://presenter:8004"
+PRESENTER_AUDIO_SERVICE_URL = "http://presenter-vibevoice:8013"
 
 
 class FeedProcessingRequest(BaseModel):
@@ -58,6 +58,10 @@ class EpisodeGenerationResponse(BaseModel):
     status: str
     message: str
     processing_steps: List[Dict[str, Any]]
+class TestWorkflowRequest(BaseModel):
+    group_name: str = "Test Podcast Group"
+    target_length_minutes: int = 10
+
 
 
 class WorkflowOrchestrator:
@@ -169,7 +173,6 @@ class WorkflowOrchestrator:
             # Get presenters for the group (mock for now)
             presenters = [
                 {
-                    "id": "00000000-0000-0000-0000-000000000001",
                     "name": "Alex Chen",
                     "bio": "Tech-savvy financial analyst",
                     "expertise": ["Technology", "Finance", "AI"]
@@ -186,17 +189,18 @@ class WorkflowOrchestrator:
                         if item["item_type"] == "feed"
                     ]
                     
+                    # Use test endpoint to avoid DB dependency in presenter service
                     brief_response = await self.http_client.post(
-                        f"{PRESENTER_SERVICE_URL}/generate-brief",
+                        f"{PRESENTER_SERVICE_URL}/test-brief-generation",
                         json={
-                            "presenter_id": presenter["id"],
-                            "collection_id": collection_id,
-                            "articles": articles
+                            "presenter_name": presenter["name"],
+                            "test_articles": articles
                         }
                     )
                     
                     if brief_response.status_code == 200:
-                        brief_data = brief_response.json()
+                        br = brief_response.json()
+                        brief_data = br.get("generated_brief", br)
                         briefs.append(brief_data)
                         
                         # Add brief to collection
@@ -205,7 +209,7 @@ class WorkflowOrchestrator:
                             json={
                                 "item_type": "brief",
                                 "content": brief_data,
-                                "metadata": {"presenter_id": presenter["id"]}
+                                "metadata": {"presenter_name": presenter["name"]}
                             }
                         )
                         
@@ -219,7 +223,7 @@ class WorkflowOrchestrator:
             logger.error(f"Error generating presenter briefs for collection {collection_id}: {e}")
             raise
     
-    async def generate_script(self, collection_id: str, group_id: UUID) -> Dict[str, Any]:
+    async def generate_script(self, collection_id: str, group_id: UUID, target_length_minutes: int) -> Dict[str, Any]:
         """Generate script from collection."""
         logger.info(f"Generating script for collection {collection_id}")
         
@@ -241,7 +245,7 @@ class WorkflowOrchestrator:
                 "feeds": feeds,
                 "reviewer_summaries": reviews,
                 "presenter_briefs": briefs,
-                "target_length_minutes": 10
+                "target_length_minutes": target_length_minutes
             }
             
             # Generate script
@@ -274,7 +278,7 @@ class WorkflowOrchestrator:
             logger.error(f"Error generating script for collection {collection_id}: {e}")
             raise
     
-    async def edit_script(self, collection_id: str, script_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def edit_script(self, collection_id: str, script_data: Dict[str, Any], target_length_minutes: int) -> Dict[str, Any]:
         """Edit and polish script."""
         logger.info(f"Editing script for collection {collection_id}")
         
@@ -300,7 +304,7 @@ class WorkflowOrchestrator:
                     "script_id": f"script-{collection_id}",
                     "script": script_data["script"],
                     "collection_context": collection_context,
-                    "target_length_minutes": 10,
+                    "target_length_minutes": target_length_minutes,
                     "target_audience": "general"
                 }
             )
@@ -393,7 +397,7 @@ class WorkflowOrchestrator:
             step4 = {"step": "script_generation", "status": "started", "timestamp": datetime.utcnow().isoformat()}
             processing_steps.append(step4)
             
-            script_data = await self.generate_script(collection_id, request.group_id)
+            script_data = await self.generate_script(collection_id, request.group_id, request.target_length_minutes)
             step4["status"] = "completed"
             step4["result"] = {"script_length": len(script_data["script"].split())}
             processing_steps.append(step4)
@@ -402,7 +406,7 @@ class WorkflowOrchestrator:
             step5 = {"step": "script_editing", "status": "started", "timestamp": datetime.utcnow().isoformat()}
             processing_steps.append(step5)
             
-            edit_data = await self.edit_script(collection_id, script_data)
+            edit_data = await self.edit_script(collection_id, script_data, request.target_length_minutes)
             step5["status"] = "completed"
             step5["result"] = {"edited_script_length": len(edit_data["review"]["edited_script"].split())}
             processing_steps.append(step5)
@@ -481,16 +485,31 @@ async def generate_episode(request: EpisodeGenerationRequest):
 
 @app.post("/test-complete-workflow")
 async def test_complete_workflow(
-    group_name: str = "Test Podcast Group",
-    target_length_minutes: int = 10
+    request: TestWorkflowRequest,
+    db: Session = Depends(get_db)
 ):
     """Test the complete workflow to generate a 10-minute podcast."""
     
     try:
+        # Ensure a test podcast group exists
+        test_group_id = UUID("00000000-0000-0000-0000-000000000001")
+        group = db.query(PodcastGroup).filter(PodcastGroup.id == test_group_id).first()
+        if not group:
+            group = PodcastGroup(
+                id=test_group_id,
+                name=request.group_name,
+                description="Auto-created test group",
+                category="News",
+                language="en",
+                country="US"
+            )
+            db.add(group)
+            db.commit()
+
         # Create test request
         test_request = EpisodeGenerationRequest(
-            group_id=UUID("00000000-0000-0000-0000-000000000001"),
-            target_length_minutes=target_length_minutes,
+            group_id=test_group_id,
+            target_length_minutes=request.target_length_minutes,
             force_generation=True
         )
         
@@ -499,8 +518,8 @@ async def test_complete_workflow(
         
         return {
             "test_parameters": {
-                "group_name": group_name,
-                "target_length_minutes": target_length_minutes
+                "group_name": request.group_name,
+                "target_length_minutes": request.target_length_minutes
             },
             "generation_result": result.dict(),
             "timestamp": datetime.utcnow().isoformat()

@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  news-feed:
+    ports:
+      - 8001:8001
+
+  reviewer:
+    build:
+      context: .
+      dockerfile: services/reviewer/Dockerfile
+    ports:
+      - 8007:8007
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3:latest
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+    volumes:
+      - ./services/reviewer:/app
+      - ./shared:/app/shared
+
+  editor:
+    build:
+      context: .
+      dockerfile: services/editor/Dockerfile
+    ports:
+      - 8009:8009
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3:latest
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+    volumes:
+      - ./services/editor:/app
+      - ./shared:/app/shared
+
+  collections:
+    build:
+      context: .
+      dockerfile: services/collections/Dockerfile
+    ports:
+      - 8011:8011
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/collections:/app
+      - ./shared:/app/shared
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+
+  presenter-persona:
+    build:
+      context: .
+      dockerfile: services/presenter/Dockerfile
+    command: uvicorn main_persona:app --host 0.0.0.0 --port 8008
+    ports:
+      - 8008:8008
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=gpt-oss-20b
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+    volumes:
+      - ./services/presenter:/app
+      - ./shared:/app/shared
+
+  writer-script:
+    build:
+      context: .
+      dockerfile: services/writer/Dockerfile
+    command: uvicorn main_script:app --host 0.0.0.0 --port 8010
+    ports:
+      - 8010:8010
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3:latest
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+    volumes:
+      - ./services/writer:/app
+      - ./shared:/app/shared
+
+  ai-overseer:
+    build:
+      context: .
+      dockerfile: services/ai-overseer/Dockerfile
+    command: python main_enhanced.py
+    ports:
+      - 8012:8012
+    depends_on:
+      - reviewer
+      - presenter-persona
+      - writer-script
+      - editor
+      - collections
+      - news-feed
+    volumes:
+      - ./services/ai-overseer:/app
+      - ./shared:/app/shared
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+
+  presenter-vibevoice:
+    build:
+      context: .
+      dockerfile: services/presenter/Dockerfile
+    command: uvicorn main_vibevoice:app --host 0.0.0.0 --port 8013
+    ports:
+      - 8013:8013
+    environment:
+      - VIBEVOICE_PATH=/workspace/VibeVoice-Community
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/presenter:/app
+      - ./shared:/app/shared
+      - ./VibeVoice-Community:/workspace/VibeVoice-Community
+
+

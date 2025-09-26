@@ -117,6 +117,7 @@ STYLE GUIDELINES:
 - Include episode highlights in description
 - Make it accessible to general audiences
 - Follow podcast platform best practices
+- Don't include URL's in the script.
 
 FORMAT OUTPUT AS JSON:
 {{
