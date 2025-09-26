@@ -39,4 +39,12 @@ celery.conf.beat_schedule = {
         "task": "app.tasks.fetch_all_news_feeds",
         "schedule": 300.0,  # Every 5 minutes
     },
+    "create-collections": {
+        "task": "app.tasks.create_collections_from_articles",
+        "schedule": 600.0,  # Every 10 minutes
+    },
+    "send-articles-to-reviewer": {
+        "task": "app.tasks.send_articles_to_reviewer",
+        "schedule": 300.0,  # Every 5 minutes
+    },
 }

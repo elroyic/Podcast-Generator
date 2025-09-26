@@ -580,6 +580,60 @@ async def put_config(cfg: ReviewerConfig):
     return article_reviewer._load_config()
 
 
+def _window_metrics(r: redis.Redis, window_seconds: int, hist: Dict[str, str]) -> MetricsWindow:
+    now = int(datetime.utcnow().timestamp())
+    def _count_and_avg(list_key: str) -> (int, float):
+        entries = r.lrange(list_key, 0, 1999)
+        vals = []
+        for e in entries:
+            try:
+                ts_s, ms_s = e.split("|", 1)
+                if now - int(ts_s) <= window_seconds:
+                    vals.append(int(ms_s))
+            except Exception:
+                continue
+        if not vals:
+            return 0, 0.0
+        return len(vals), sum(vals) / len(vals)
+
+    light_count, light_avg = _count_and_avg(article_reviewer.lat_list_light)
+    heavy_count, heavy_avg = _count_and_avg(article_reviewer.lat_list_heavy)
+    err_entries = r.lrange(article_reviewer.err_list, 0, 999)
+    errors = 0
+    for e in err_entries:
+        try:
+            ts_s, _ = e.split("|", 1)
+            if now - int(ts_s) <= window_seconds:
+                errors += 1
+        except Exception:
+            continue
+    total = light_count + heavy_count + errors
+    success_rate = (total - errors) / total if total > 0 else 1.0
+    
+    # Parse histogram
+    hist_vals = []
+    for k, v in hist.items():
+        try:
+            hist_vals.append(float(v))
+        except Exception:
+            continue
+    
+    # Parse histogram into dict format
+    hist_dict = {}
+    for i, val in enumerate(hist_vals):
+        hist_dict[f"bucket_{i}"] = int(val)
+    
+    return MetricsWindow(
+        total_light=light_count,
+        total_heavy=heavy_count,
+        avg_latency_ms_light=light_avg,
+        avg_latency_ms_heavy=heavy_avg,
+        success_rate=success_rate,
+        error_rate=1.0 - success_rate,
+        confidence_histogram=hist_dict
+    )
+
+
 @app.get("/metrics", response_model=MetricsResponse)
 async def get_metrics():
     r = article_reviewer.redis
@@ -728,46 +782,3 @@ def _avg_latency_ms(r: redis.Redis, list_key: str, window_seconds: int) -> float
     except Exception:
         return 0.0
 
-
-def _window_metrics(r: redis.Redis, window_seconds: int, hist: Dict[str, str]) -> MetricsWindow:
-    now = int(datetime.utcnow().timestamp())
-    def _count_and_avg(list_key: str) -> (int, float):
-        entries = r.lrange(list_key, 0, 1999)
-        vals = []
-        for e in entries:
-            try:
-                ts_s, ms_s = e.split("|", 1)
-                if now - int(ts_s) <= window_seconds:
-                    vals.append(int(ms_s))
-            except Exception:
-                continue
-        if not vals:
-            return 0, 0.0
-        return len(vals), sum(vals) / len(vals)
-
-    light_count, light_avg = _count_and_avg(article_reviewer.lat_list_light)
-    heavy_count, heavy_avg = _count_and_avg(article_reviewer.lat_list_heavy)
-    err_entries = r.lrange(article_reviewer.err_list, 0, 999)
-    errors = 0
-    for e in err_entries:
-        try:
-            ts_s, _ = e.split("|", 1)
-            if now - int(ts_s) <= window_seconds:
-                errors += 1
-        except Exception:
-            continue
-    total = light_count + heavy_count + errors
-    success = light_count + heavy_count
-    success_rate = (success / total) if total else 1.0
-    error_rate = (errors / total) if total else 0.0
-    # Confidence histogram: return raw stored counts
-    conf_hist = {k: int(v) for k, v in (hist or {}).items()}
-    return MetricsWindow(
-        total_light=light_count,
-        total_heavy=heavy_count,
-        avg_latency_ms_light=light_avg,
-        avg_latency_ms_heavy=heavy_avg,
-        success_rate=success_rate,
-        error_rate=error_rate,
-        confidence_histogram=conf_hist,
-    )

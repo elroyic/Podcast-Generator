@@ -23,6 +23,7 @@
                         <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
                         <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
                         <a href="/news-feed" class="text-gray-900 font-semibold">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
                     </div>
                 </div>
             </div>
@@ -336,8 +337,25 @@
             alert('Export Feed Data functionality - to be implemented');
         }
 
-        function refreshFeed(feedId) {
-            alert(`Refresh Feed ${feedId} functionality - to be implemented`);
+        async function refreshFeed(feedId) {
+            try {
+                const response = await fetch(`/api/news-feed/refresh/${feedId}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`✅ ${result.message}`);
+                    // Reload the data
+                    loadFeedStats();
+                    loadFeeds();
+                } else {
+                    alert(`❌ Error: ${result.error}`);
+                }
+            } catch (error) {
+                console.error('Error refreshing feed:', error);
+                alert('❌ Error refreshing feed: ' + error.message);
+            }
         }
 
         function editFeed(feedId) {

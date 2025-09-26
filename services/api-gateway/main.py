@@ -535,8 +535,7 @@ async def list_episodes_simple(
             "group_id": str(episode.group_id) if episode.group_id else None,
             "group_name": group_name,
             "status": episode.status.value if episode.status else "unknown",
-            "created_at": episode.created_at.isoformat() if episode.created_at else None,
-            "updated_at": episode.updated_at.isoformat() if episode.updated_at else None
+            "created_at": episode.created_at.isoformat() if episode.created_at else None
         })
     
     return simple_episodes
@@ -752,6 +751,68 @@ async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
         })
     
     return result
+
+
+@app.post("/api/news-feed/refresh/{feed_id}")
+async def refresh_feed(feed_id: UUID, db: Session = Depends(get_db)):
+    """Trigger a manual refresh of a specific news feed."""
+    from shared.models import NewsFeed, Article
+    import httpx
+    import feedparser
+    from datetime import datetime
+    
+    # Get the feed
+    feed = db.query(NewsFeed).filter(NewsFeed.id == feed_id).first()
+    if not feed:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    
+    try:
+        # Fetch the RSS feed
+        async with httpx.AsyncClient() as client:
+            response = await client.get(feed.source_url, timeout=30.0)
+            response.raise_for_status()
+            
+        # Parse the feed
+        parsed_feed = feedparser.parse(response.text)
+        
+        if parsed_feed.bozo:
+            return {"success": False, "error": "Invalid RSS feed format", "entries_processed": 0}
+        
+        # Process new entries
+        entries_processed = 0
+        for entry in parsed_feed.entries[:10]:  # Limit to 10 most recent entries
+            # Check if article already exists
+            existing = db.query(Article).filter(
+                Article.feed_id == feed.id,
+                Article.link == entry.link
+            ).first()
+            
+            if not existing:
+                # Create new article
+                article = Article(
+                    feed_id=feed.id,
+                    title=entry.title,
+                    link=entry.link,
+                    summary=entry.summary if hasattr(entry, 'summary') else None,
+                    content=entry.content[0].value if hasattr(entry, 'content') and entry.content else None,
+                    publish_date=datetime(*entry.published_parsed[:6]) if hasattr(entry, 'published_parsed') else None
+                )
+                db.add(article)
+                entries_processed += 1
+        
+        # Update feed last_fetched
+        feed.last_fetched = datetime.utcnow()
+        db.commit()
+        
+        return {
+            "success": True, 
+            "message": f"Feed refreshed successfully. {entries_processed} new articles processed.",
+            "entries_processed": entries_processed
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e), "entries_processed": 0}
 
 
 # Collections API endpoints

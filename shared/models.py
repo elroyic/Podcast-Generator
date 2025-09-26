@@ -98,6 +98,13 @@ class Presenter(Base):
     interests = Column(ARRAY(String))
     country = Column(String(100))
     city = Column(String(100))
+    status = Column(String(20), default='active')
+    persona = Column(Text)
+    voice_model = Column(String(100), default='vibevoice')
+    llm_model = Column(String(100), default='gpt-oss-20b')
+    system_prompt = Column(Text)
+    review_count = Column(Integer, default=0)
+    last_review = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -156,10 +163,12 @@ class Article(Base):
     confidence = Column(Float)  # 0..1 confidence from reviewer
     processed_at = Column(DateTime(timezone=True))  # when review stored
     review_metadata = Column(JSON)  # auxiliary metadata (model, fallback, timings, etc.)
+    collection_id = Column(PGUUID(as_uuid=True), ForeignKey('collections.id'))
 
     # Relationships
     news_feed = relationship("NewsFeed", back_populates="articles")
     episodes = relationship("Episode", secondary=episode_article_link, back_populates="articles")
+    collection = relationship("Collection", back_populates="articles")
 
 
 class Episode(Base):
@@ -194,6 +203,20 @@ class EpisodeMetadata(Base):
 
     # Relationships
     episode = relationship("Episode", back_populates="episode_metadata")
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    group_id = Column(PGUUID(as_uuid=True), ForeignKey('podcast_groups.id'))
+    status = Column(String(20), default='processing')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    podcast_group = relationship("PodcastGroup")
+    articles = relationship("Article", back_populates="collection")
 
 
 class AudioFile(Base):

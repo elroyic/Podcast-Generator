@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
-from shared.models import Article, NewsFeed, PodcastGroup
+from shared.models import Article, NewsFeed, PodcastGroup, Collection
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -72,31 +72,36 @@ class CollectionsManager:
     """Manages collections and their lifecycle."""
     
     def __init__(self):
-        self.collections: Dict[str, Collection] = {}
         self.reviewer_client = httpx.AsyncClient(timeout=30.0)
     
-    async def create_collection(self, request: CollectionCreate) -> Collection:
+    async def create_collection(self, request: CollectionCreate, db: Session) -> Collection:
         """Create a new collection for a podcast group."""
-        collection_id = str(uuid4())
-        expires_at = datetime.utcnow() + timedelta(hours=COLLECTION_TTL_HOURS)
+        # Create collection in database
+        db_collection = Collection(
+            group_id=UUID(request.group_id),
+            status="building"
+        )
+        db.add(db_collection)
+        db.commit()
+        db.refresh(db_collection)
         
+        # Create Pydantic model for response
         collection = Collection(
-            collection_id=collection_id,
-            group_id=request.group_id,
-            status="building",
+            collection_id=str(db_collection.id),
+            group_id=str(db_collection.group_id),
+            status=db_collection.status,
             items=[],
             metadata={
                 "priority_tags": request.priority_tags,
                 "max_items": request.max_items,
                 "min_feeds_required": MIN_FEEDS_PER_COLLECTION
             },
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-            expires_at=expires_at
+            created_at=db_collection.created_at,
+            updated_at=db_collection.updated_at,
+            expires_at=None
         )
         
-        self.collections[collection_id] = collection
-        logger.info(f"Created collection {collection_id} for group {request.group_id}")
+        logger.info(f"Created collection {collection.collection_id} for group {request.group_id}")
         
         return collection
     
@@ -278,9 +283,9 @@ async def health_check():
 
 
 @app.post("/collections", response_model=CollectionResponse)
-async def create_collection(request: CollectionCreate):
+async def create_collection(request: CollectionCreate, db: Session = Depends(get_db)):
     """Create a new collection."""
-    collection = await collections_manager.create_collection(request)
+    collection = await collections_manager.create_collection(request, db)
     
     return CollectionResponse(
         collection=collection,

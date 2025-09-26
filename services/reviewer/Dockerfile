@@ -9,12 +9,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY services/reviewer/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY services/reviewer/ .
-COPY shared/ ./shared/
+COPY . .
 
 # Expose port
 EXPOSE 8007

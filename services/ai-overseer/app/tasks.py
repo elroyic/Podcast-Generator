@@ -12,7 +12,7 @@ from celery import current_task
 from sqlalchemy.orm import Session
 
 from shared.database import get_db_session
-from shared.models import PodcastGroup, NewsFeed, Article, Episode, EpisodeStatus
+from shared.models import PodcastGroup, NewsFeed, Article, Episode, EpisodeStatus, news_feed_assignment
 from shared.schemas import GenerationRequest, GenerationResponse
 from .celery import celery
 from .services import EpisodeGenerationService, NewsFeedService, TextGenerationService, WriterService, PresenterService, PublishingService
@@ -307,6 +307,126 @@ def fetch_all_news_feeds():
             
     except Exception as e:
         logger.error(f"Error in fetch_all_news_feeds task: {e}")
+
+
+@celery.task
+def create_collections_from_articles():
+    """Create collections from unreviewed articles."""
+    try:
+        logger.info("Creating collections from articles")
+        
+        db = get_db_session()
+        try:
+            # Get all podcast groups
+            groups = db.query(PodcastGroup).filter(PodcastGroup.status == "active").all()
+            
+            for group in groups:
+                try:
+                    # Get unreviewed articles for this group's feeds
+                    unreviewed_articles = db.query(Article).join(NewsFeed).filter(
+                        Article.reviewer_type.is_(None),  # Not yet reviewed
+                        NewsFeed.id.in_([
+                            row.feed_id for row in db.execute(
+                                news_feed_assignment.select().where(
+                                    news_feed_assignment.c.group_id == group.id
+                                )
+                            ).fetchall()
+                        ])
+                    ).limit(10).all()  # Limit to 10 articles per group
+                    
+                    if len(unreviewed_articles) >= 3:  # Minimum threshold
+                        # Create collection via Collections service
+                        async def create_collection():
+                            async with httpx.AsyncClient() as client:
+                                collection_data = {
+                                    "group_id": str(group.id),
+                                    "status": "building",
+                                    "metadata": {
+                                        "source": "auto_created",
+                                        "article_count": len(unreviewed_articles)
+                                    }
+                                }
+                                
+                                response = await client.post(
+                                    "http://collections:8011/collections",
+                                    json=collection_data
+                                )
+                                response.raise_for_status()
+                                collection = response.json()
+                                
+                                # Add articles to collection
+                                for article in unreviewed_articles:
+                                    await client.post(
+                                        f"http://collections:8011/collections/{collection['collection']['collection_id']}/feeds/{article.id}"
+                                    )
+                                
+                                logger.info(f"Created collection {collection['collection']['collection_id']} for group {group.id} with {len(unreviewed_articles)} articles")
+                        
+                        import asyncio
+                        asyncio.run(create_collection())
+                        
+                except Exception as e:
+                    logger.error(f"Error creating collection for group {group.id}: {e}")
+                    
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error in create_collections_from_articles task: {e}")
+
+
+@celery.task
+def send_articles_to_reviewer():
+    """Send unreviewed articles to the Reviewer service."""
+    try:
+        logger.info("Sending unreviewed articles to reviewer")
+        
+        db = get_db_session()
+        try:
+            # Get unreviewed articles (limit to 50 per run)
+            unreviewed_articles = db.query(Article).filter(
+                Article.reviewer_type.is_(None)  # Not yet reviewed
+            ).limit(50).all()
+            
+            if not unreviewed_articles:
+                logger.info("No unreviewed articles found")
+                return
+            
+            logger.info(f"Found {len(unreviewed_articles)} unreviewed articles")
+            
+            # Send articles to reviewer service
+            async def send_to_reviewer():
+                async with httpx.AsyncClient() as client:
+                    for article in unreviewed_articles:
+                        try:
+                            review_data = {
+                                "feed_id": str(article.feed_id),
+                                "title": article.title,
+                                "url": article.link,
+                                "content": article.content or article.summary or "",
+                                "published": article.publish_date.isoformat() if article.publish_date else None
+                            }
+                            
+                            response = await client.post(
+                                "http://reviewer:8008/review",
+                                json=review_data,
+                                timeout=30.0
+                            )
+                            response.raise_for_status()
+                            
+                            logger.info(f"Sent article {article.id} to reviewer")
+                            
+                        except Exception as e:
+                            logger.error(f"Error sending article {article.id} to reviewer: {e}")
+            
+            import asyncio
+            asyncio.run(send_to_reviewer())
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error in send_articles_to_reviewer task: {e}")
 
 
 def should_generate_episode(group: PodcastGroup) -> bool:
