@@ -337,6 +337,120 @@ async def get_prometheus_metrics(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to generate metrics: {str(e)}")
 
 
+@app.post("/auto-create-groups")
+async def auto_create_podcast_groups(db: Session = Depends(get_db)):
+    """Automatically create podcast groups based on available content and presenters."""
+    try:
+        logger.info("🤖 Auto-creating podcast groups...")
+        
+        # Check if we have sufficient resources
+        writers = db.query(Writer).all()
+        presenters = db.query(Presenter).all()
+        feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).all()
+        
+        if not writers:
+            # Create a default writer
+            default_writer = Writer(
+                name="AI Content Writer",
+                model="Qwen3",
+                capabilities=["script_generation", "metadata_generation"]
+            )
+            db.add(default_writer)
+            db.commit()
+            db.refresh(default_writer)
+            writers = [default_writer]
+            
+        if not presenters:
+            # Create default presenters
+            default_presenters = [
+                Presenter(
+                    name="AI News Presenter",
+                    bio="AI-powered news presenter specializing in current events",
+                    age=30,
+                    gender="neutral",
+                    specialties=["news", "current_events"],
+                    voice_model="vibevoice"
+                ),
+                Presenter(
+                    name="Tech AI Presenter", 
+                    bio="AI presenter focused on technology and innovation",
+                    age=28,
+                    gender="neutral",
+                    specialties=["technology", "ai", "innovation"],
+                    voice_model="vibevoice"
+                )
+            ]
+            for presenter in default_presenters:
+                db.add(presenter)
+            db.commit()
+            for presenter in default_presenters:
+                db.refresh(presenter)
+            presenters = default_presenters
+        
+        # Create podcast groups by category if they don't exist
+        categories = ["Technology", "News", "Finance", "General"]
+        created_groups = []
+        
+        for category in categories:
+            # Check if group already exists for this category
+            existing = db.query(PodcastGroup).filter(
+                PodcastGroup.category == category,
+                PodcastGroup.status == "active"
+            ).first()
+            
+            if not existing:
+                # Create new group
+                group = PodcastGroup(
+                    name=f"AI {category} Podcast",
+                    description=f"Automated {category.lower()} podcast generated from RSS feeds",
+                    category=category,
+                    language="en",
+                    country="US",
+                    tags=[category.lower(), "ai", "automated"],
+                    keywords=[category.lower(), "news", "ai"],
+                    schedule="0 12 * * *",  # Daily at noon
+                    writer_id=writers[0].id
+                )
+                db.add(group)
+                db.commit()
+                db.refresh(group)
+                
+                # Assign presenters
+                group.presenters = presenters[:2]  # Assign first 2 presenters
+                
+                # Assign feeds (distribute feeds across groups)
+                feeds_per_group = len(feeds) // len(categories)
+                start_idx = len(created_groups) * feeds_per_group
+                end_idx = start_idx + feeds_per_group
+                group.news_feeds = feeds[start_idx:end_idx]
+                
+                db.commit()
+                created_groups.append(group)
+                logger.info(f"✅ Created podcast group: {group.name}")
+        
+        return {
+            "status": "success",
+            "message": f"Auto-created {len(created_groups)} podcast groups",
+            "groups_created": [
+                {
+                    "id": str(group.id),
+                    "name": group.name,
+                    "category": group.category,
+                    "feeds_assigned": len(group.news_feeds),
+                    "presenters_assigned": len(group.presenters)
+                }
+                for group in created_groups
+            ],
+            "total_writers": len(writers),
+            "total_presenters": len(presenters),
+            "total_feeds": len(feeds)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error auto-creating podcast groups: {e}")
+        raise HTTPException(status_code=500, detail=f"Auto-creation failed: {str(e)}")
+
+
 @app.post("/test-complete-workflow")
 async def test_complete_workflow(db: Session = Depends(get_db)):
     """Test the complete podcast generation workflow end-to-end."""

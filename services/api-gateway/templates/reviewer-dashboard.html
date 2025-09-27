@@ -279,10 +279,16 @@
 
                 // Update confidence histogram
                 if (confidenceChart) {
-                    const hist = last1h.confidence_histogram;
-                    const buckets = ['0.00-0.20', '0.20-0.40', '0.40-0.60', '0.60-0.80', '0.80-1.00'];
-                    const data = buckets.map(bucket => hist[bucket] || 0);
-                    confidenceChart.data.datasets[0].data = data;
+                    const hist = last1h.confidence_histogram || {};
+                    // Backend uses 20 buckets of 0.05; collapse to 5 buckets of 0.20
+                    const buckets20 = Array.from({length: 20}, (_, i) => `bucket_${i}`);
+                    const collapsed = [0,0,0,0,0];
+                    for (let i = 0; i < 20; i++) {
+                        const count = parseInt(hist[buckets20[i]] || 0, 10);
+                        const group = Math.min(4, Math.floor(i / 4)); // 0-3->0, 4-7->1, ... 16-19->4
+                        collapsed[group] += isNaN(count) ? 0 : count;
+                    }
+                    confidenceChart.data.datasets[0].data = collapsed;
                     confidenceChart.update();
                 }
 

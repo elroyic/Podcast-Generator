@@ -667,8 +667,26 @@ async def download_episode(
         # External URL - redirect directly
         return RedirectResponse(url=audio_file.url)
     else:
-        # Local path - serve via nginx
-        nginx_url = f"http://localhost:8080{audio_file.url}"
+        # Local path - normalize
+        url = audio_file.url
+        # Strip file:// prefix if present
+        if url.startswith("file://"):
+            url = url[len("file://"):]
+        # Expected presenter writes to /app/storage/episodes/{id}/audio.mp3
+        # Public URL is exposed by nginx as /storage/episodes/{id}/audio.mp3
+        # Map any absolute path ending with /storage/episodes/... to public path
+        storage_marker = "/storage/episodes/"
+        public_path = None
+        try:
+            idx = url.replace("\\", "/").find(storage_marker)
+            if idx != -1:
+                public_path = url.replace("\\", "/")[idx:]
+            else:
+                # Fallback: construct from episode id
+                public_path = f"/storage/episodes/{episode_id}/audio.mp3"
+        except Exception:
+            public_path = f"/storage/episodes/{episode_id}/audio.mp3"
+        nginx_url = f"http://localhost:8080{public_path}"
         return RedirectResponse(url=nginx_url)
 
 
@@ -1081,6 +1099,18 @@ async def get_news_feed_performance(hours: int = 24, db: Session = Depends(get_d
         "labels": labels,
         "counts": counts,
     }
+
+
+@app.post("/api/news-feed/send-to-reviewer")
+async def send_articles_to_reviewer():
+    """Send unreviewed articles to the reviewer service."""
+    return await call_service("news-feed", "POST", "/articles/send-to-reviewer")
+
+
+@app.post("/api/auto-create-groups") 
+async def auto_create_groups():
+    """Auto-create podcast groups."""
+    return await call_service("ai-overseer", "POST", "/auto-create-groups")
 
 
 @app.post("/api/news-feed/refresh/{feed_id}")

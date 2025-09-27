@@ -305,6 +305,68 @@ async def get_recent_articles(
         .order_by(Article.publish_date.desc()).limit(limit).all()
 
 
+@app.post("/articles/send-to-reviewer")
+async def send_unreviewed_articles_to_reviewer(
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """Send unreviewed articles to the reviewer service."""
+    # Find articles that haven't been reviewed yet (no review_tags or confidence)
+    unreviewed_articles = db.query(Article).filter(
+        Article.review_tags.is_(None)
+    ).order_by(Article.created_at.desc()).limit(limit).all()
+    
+    sent_count = 0
+    failed_count = 0
+    
+    for article in unreviewed_articles:
+        try:
+            await send_article_to_reviewer(article)
+            sent_count += 1
+        except Exception as e:
+            logger.error(f"Failed to send article {article.id} to reviewer: {e}")
+            failed_count += 1
+    
+    return {
+        "message": f"Sent {sent_count} articles to reviewer, {failed_count} failed",
+        "sent": sent_count,
+        "failed": failed_count,
+        "total_unreviewed": len(unreviewed_articles)
+    }
+
+
+async def send_article_to_reviewer(article: Article):
+    """Send a new article to the reviewer service for processing."""
+    try:
+        reviewer_url = os.getenv("REVIEWER_SERVICE_URL", "http://reviewer:8008")
+        
+        # Prepare article data for reviewer
+        article_data = {
+            "feed_id": str(article.feed_id),
+            "title": article.title,
+            "url": article.link,
+            "content": article.content or article.summary or "",
+            "published": article.publish_date.isoformat() if article.publish_date else datetime.utcnow().isoformat()
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Use the queue-based endpoint if available, otherwise direct review
+            try:
+                response = await client.post(f"{reviewer_url}/enqueue", json=article_data)
+                response.raise_for_status()
+                logger.info(f"✅ Enqueued article for review: {article.title[:50]}...")
+            except Exception as queue_error:
+                logger.warning(f"Queue failed, trying direct review: {queue_error}")
+                # Fallback to direct review endpoint
+                response = await client.post(f"{reviewer_url}/review", json=article_data)
+                response.raise_for_status()
+                logger.info(f"✅ Directly reviewed article: {article.title[:50]}...")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to send article to reviewer: {e}")
+        # Don't fail the entire process if reviewer is down
+
+
 async def fetch_feed_articles(feed_id: UUID):
     """Background task to fetch articles from a feed."""
     db = next(get_db())
@@ -382,7 +444,11 @@ async def fetch_feed_articles(feed_id: UUID):
                     except Exception:
                         pass
                     db.add(article)
+                    db.flush()  # Ensure article has an ID
                     new_articles_count += 1
+                    
+                    # Automatically send new article to reviewer service
+                    await send_article_to_reviewer(article)
         
         # Update last_fetched timestamp
         feed.last_fetched = datetime.utcnow()

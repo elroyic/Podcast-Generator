@@ -9,6 +9,7 @@ Close the gaps listed in `Docs/Current/Missing-Functionality.md` by specifying c
 ---
 
 ### 1. Reviewer Two‑Tier Orchestration (Light/Heavy)
+Status: Implemented (routing, config, metrics); Partial (queue ingestion, admin‑only fingerprint read)
 Goal: Route each feed/article through Light Reviewer and, if needed, Heavy Reviewer, using the dedicated microservices instead of in‑process Ollama in `reviewer`.
 
 1.1 Service Changes
@@ -32,6 +33,7 @@ Goal: Route each feed/article through Light Reviewer and, if needed, Heavy Revie
 ---
 
 ### 2. Adaptive Cadence: Orchestrator and UI
+Status: Implemented (lock + backend status); Missing (dashboard table/UI)
 Goal: Enforce non‑overlapping runs per group and surface cadence status (Daily/3‑Day/Weekly) and selection rationale in the dashboard.
 
 2.1 Overseer Backend (`ai-overseer`)
@@ -51,6 +53,7 @@ Goal: Enforce non‑overlapping runs per group and surface cadence status (Daily
 ---
 
 ### 3. Writer vs Text‑Generation Alignment
+Status: Implemented (Writer as default in overseer); Missing (feature flag wiring)
 Goal: Conform to docs where Writer produces the long‑form script (Qwen3). The existing `text-generation` service can remain for alternate paths but default to Writer.
 
 3.1 Overseer Flow
@@ -64,6 +67,7 @@ Goal: Conform to docs where Writer produces the long‑form script (Qwen3). The 
 ---
 
 ### 4. Editor Integration
+Status: Implemented (Editor invoked, edited script persisted)
 Goal: Pass script through Editor, persist edited script and review.
 
 4.1 Overseer Changes
@@ -76,6 +80,7 @@ Goal: Pass script through Editor, persist edited script and review.
 ---
 
 ### 5. Presenter & AudioFile Persistence
+Status: Implemented (AudioFile row; mp3 path under storage); Missing (multi‑presenter sequencing)
 Goal: Persist `AudioFile` rows and support multi‑presenter sequencing.
 
 5.1 AudioFile DB
@@ -92,6 +97,7 @@ Goal: Persist `AudioFile` rows and support multi‑presenter sequencing.
 ---
 
 ### 6. Publishing Alignment (Local Platforms)
+Status: Implemented (publishing to local platforms and status update)
 Goal: Use local platforms as per `Local-Hosting.md`.
 
 6.1 Overseer Publishing
@@ -103,6 +109,7 @@ Goal: Use local platforms as per `Local-Hosting.md`.
 ---
 
 ### 7. Observability – Prometheus
+Status: Implemented (Prom endpoints across services)
 Goal: Provide Prometheus style metrics across services.
 
 7.1 Expose `/metrics` (text/plain)
@@ -117,6 +124,7 @@ Goal: Provide Prometheus style metrics across services.
 ---
 
 ### 8. Security – Admin Auth
+Status: Partial (JWT + admin guard for write APIs); Missing (protect dashboard HTML + broader GET APIs)
 Goal: Protect dashboard and management APIs with JWT (admin role).
 
 8.1 API Gateway
@@ -129,6 +137,7 @@ Goal: Protect dashboard and management APIs with JWT (admin role).
 ---
 
 ### 9. Dashboard Wiring – Placeholder Cleanup
+Status: Partial (most APIs wired; several UI actions still placeholders)
 Goal: Replace alerts with working flows and fill missing endpoints.
 
 9.1 Admin Dashboard
@@ -190,6 +199,14 @@ Acceptance Criteria
   - `GET /cadence/status` (see §2)
 - Reviewer (optional)
   - `POST /enqueue` (see §1.2)
+
+---
+
+### 11.1 Immediate Fixes Committed (2025‑09‑27)
+- Added `USE_WRITER_FOR_SCRIPT` env toggle in Overseer (defaults to true; falls back to Text‑Generation when false)
+- Fixed episode download redirect for local `file://` audio URLs to public `/storage/...` path via gateway
+- Mapped reviewer histogram (20×0.05 buckets) to 5×0.20 buckets in Reviewer Dashboard UI
+- Added “Cadence Status” table to dashboard, backed by `/api/cadence/status`
 
 ---
 

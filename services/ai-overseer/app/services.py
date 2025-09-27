@@ -376,6 +376,8 @@ class EpisodeGenerationService:
         self.presenter_service = PresenterService()
         self.publishing_service = PublishingService()
         self.cadence_manager = CadenceManager()
+        # Feature flag: allow switching script generation source
+        self.use_writer_for_script = str(os.getenv("USE_WRITER_FOR_SCRIPT", "true")).lower() in ("1", "true", "yes")
     
     async def generate_complete_episode(self, group_id: UUID, collection_id: Optional[str] = None) -> Dict[str, Any]:
         """Generate a complete episode from start to finish."""
@@ -416,11 +418,23 @@ class EpisodeGenerationService:
             if not articles:
                 raise ValueError("No article content available to generate episode")
             
-            # Step 3: Generate script using Writer service
-            logger.info("Generating podcast script with Writer service")
-            article_contents = [f"{a.get('title', '')} - {a.get('summary', '')[:500]}" for a in articles]
-            script_result = await self.writer_service.generate_script(group_id, article_contents)
-            script = script_result["script"]
+            # Step 3: Generate script (Writer by default; can toggle to TextGeneration)
+            if self.use_writer_for_script:
+                logger.info("Generating podcast script with Writer service")
+                article_contents = [f"{a.get('title', '')} - {a.get('summary', '')[:500]}" for a in articles]
+                script_result = await self.writer_service.generate_script(group_id, article_contents)
+                script = script_result["script"]
+            else:
+                logger.info("Generating podcast script with Text-Generation service")
+                # Use summaries as input for text-generation service
+                tg_result = await self.text_generation_service.generate_script(
+                    group_id=group_id,
+                    article_summaries=articles,
+                    target_duration=75
+                )
+                script = tg_result.get("script") or tg_result.get("raw_script") or ""
+                if not script:
+                    raise ValueError("Text-Generation did not return a script")
             
             # Step 4: Create episode record
             logger.info("Creating episode record")
