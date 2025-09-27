@@ -8,10 +8,13 @@ from uuid import UUID
 
 import httpx
 import os
-from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
+import jwt
+from datetime import datetime, timedelta
+from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -47,6 +50,14 @@ app = FastAPI(title="Podcast AI API Gateway", version="1.0.0")
 templates = Jinja2Templates(directory="templates")
 PUBLIC_MEDIA_BASE_URL = os.getenv("PUBLIC_MEDIA_BASE_URL", "http://localhost:8090")
 
+# JWT Configuration
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = 24
+
+# Authentication
+security = HTTPBearer(auto_error=False)
+
 # Service URLs
 SERVICE_URLS = {
     "news-feed": "http://news-feed:8001",
@@ -59,6 +70,47 @@ SERVICE_URLS = {
     "ai-overseer": "http://ai-overseer:8012",
     "reviewer": "http://reviewer:8008",
 }
+
+# JWT Helper Functions
+def create_jwt_token(username: str) -> str:
+    """Create a JWT token for a user."""
+    expiry = datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS)
+    payload = {
+        "sub": username,
+        "exp": expiry,
+        "iat": datetime.utcnow(),
+        "role": "admin"  # Simple role-based auth
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
+    """Verify a JWT token and return payload."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.PyJWTError:
+        return None
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+    """Get current authenticated user from JWT token."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    payload = verify_jwt_token(credentials.credentials)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    return payload
+
+
+def admin_required(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Require admin role for endpoint access."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
 
 # Create tables on startup
 @app.on_event("startup")
@@ -87,6 +139,37 @@ async def call_service(service_name: str, method: str, endpoint: str, **kwargs) 
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Service communication error: {str(e)}")
+
+
+# Authentication Endpoints
+@app.post("/api/auth/login")
+async def login(credentials: Dict[str, str] = Body(...)):
+    """Simple login endpoint - in production, validate against a user database."""
+    username = credentials.get("username")
+    password = credentials.get("password")
+    
+    # Simple hardcoded admin credentials (in production, use proper user management)
+    if username == "admin" and password == os.getenv("ADMIN_PASSWORD", "admin123"):
+        token = create_jwt_token(username)
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "username": username,
+            "role": "admin"
+        }
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/api/auth/verify")
+async def verify_token(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Verify if current token is valid."""
+    return {
+        "valid": True,
+        "username": current_user.get("sub"),
+        "role": current_user.get("role"),
+        "expires": current_user.get("exp")
+    }
 
 
 # Health Check
@@ -329,7 +412,8 @@ async def list_podcast_groups(
 @app.post("/api/podcast-groups", response_model=PodcastGroupSchema)
 async def create_podcast_group(
     group_data: PodcastGroupCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
 ):
     """Create a new podcast group."""
     # Validate presenters exist
@@ -441,7 +525,8 @@ async def update_podcast_group(
 @app.delete("/api/podcast-groups/{group_id}")
 async def delete_podcast_group(
     group_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
 ):
     """Delete a podcast group."""
     group = db.query(PodcastGroup).filter(PodcastGroup.id == group_id).first()
@@ -457,7 +542,8 @@ async def delete_podcast_group(
 @app.post("/api/generate-episode", response_model=GenerationResponse)
 async def generate_episode(
     request: GenerationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
 ):
     """Generate a complete episode for a podcast group."""
     
@@ -555,6 +641,35 @@ async def get_episode(
     if not episode:
         raise HTTPException(status_code=404, detail="Episode not found")
     return episode
+
+
+@app.get("/api/episodes/{episode_id}/download")
+async def download_episode(
+    episode_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Download episode audio file."""
+    from shared.models import AudioFile
+    from fastapi.responses import RedirectResponse
+    
+    # Get episode
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    
+    # Get audio file
+    audio_file = db.query(AudioFile).filter(AudioFile.episode_id == episode_id).first()
+    if not audio_file:
+        raise HTTPException(status_code=404, detail="Audio file not found for this episode")
+    
+    # Check if this is a local file path or external URL
+    if audio_file.url.startswith("http"):
+        # External URL - redirect directly
+        return RedirectResponse(url=audio_file.url)
+    else:
+        # Local path - serve via nginx
+        nginx_url = f"http://localhost:8080{audio_file.url}"
+        return RedirectResponse(url=nginx_url)
 
 
 # Presenters API
@@ -690,6 +805,15 @@ async def scale_light_reviewer(workers: int = Body(embed=True, default=1)):
     # Store desired count in reviewer config; external process handles applying scale
     await call_service("reviewer", "PUT", "/config", json={"light_workers": workers})
     return {"status": "ok", "workers": workers}
+
+
+@app.get("/api/cadence/status")
+async def get_cadence_status(group_id: Optional[str] = None):
+    """Get cadence status for podcast groups."""
+    if group_id:
+        return await call_service("ai-overseer", "GET", f"/cadence/status?group_id={group_id}")
+    else:
+        return await call_service("ai-overseer", "GET", "/cadence/status")
 
 
 @app.get("/api/overseer/duplicates")
@@ -918,6 +1042,68 @@ async def get_collection(collection_id: UUID, db: Session = Depends(get_db)):
         "created_at": collection.created_at.isoformat() if collection.created_at else None,
         "updated_at": collection.updated_at.isoformat() if collection.updated_at else None,
         "articles": article_list
+    }
+
+
+@app.post("/api/collections")
+async def create_collection(
+    collection_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Create a new collection."""
+    from shared.models import Collection, PodcastGroup
+    
+    # Validate group exists
+    group_id = collection_data.get("group_id")
+    if group_id:
+        group = db.query(PodcastGroup).filter(PodcastGroup.id == group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Podcast group not found")
+    
+    # Create collection
+    collection = Collection(
+        group_id=group_id,
+        status=collection_data.get("status", "processing")
+    )
+    db.add(collection)
+    db.commit()
+    db.refresh(collection)
+    
+    return {
+        "id": str(collection.id),
+        "group_id": str(collection.group_id) if collection.group_id else None,
+        "status": collection.status,
+        "created_at": collection.created_at.isoformat(),
+        "updated_at": collection.updated_at.isoformat()
+    }
+
+
+@app.put("/api/collections/{collection_id}")
+async def update_collection(
+    collection_id: UUID,
+    collection_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Update a collection."""
+    from shared.models import Collection
+    
+    collection = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    # Update fields
+    if "status" in collection_data:
+        collection.status = collection_data["status"]
+    
+    db.commit()
+    db.refresh(collection)
+    
+    return {
+        "id": str(collection.id),
+        "group_id": str(collection.group_id) if collection.group_id else None,
+        "status": collection.status,
+        "created_at": collection.created_at.isoformat(),
+        "updated_at": collection.updated_at.isoformat()
     }
 
 
