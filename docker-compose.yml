@@ -52,11 +52,11 @@ services:
     ports:
       - "8007:8000"
     environment:
-      - VLLM_BASE_URL=http://vllm:8000
-      - MODEL_NAME=Qwen2-0.5B
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MODEL_NAME=qwen2:0.5b
       - PORT=8000
     depends_on:
-      - vllm
+      - ollama
     deploy:
       resources:
         limits:
@@ -69,11 +69,11 @@ services:
     ports:
       - "8011:8000"
     environment:
-      - VLLM_BASE_URL=http://vllm:8000
-      - MODEL_NAME=Qwen3-4B-Thinking-2507
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MODEL_NAME=qwen3:4b
       - PORT=8000
     depends_on:
-      - vllm
+      - ollama
     deploy:
       resources:
         limits:
@@ -270,31 +270,8 @@ services:
       - ./shared:/app/shared
       - storage_data:/app/storage
 
-  # vLLM for high-performance LLM inference
-  vllm:
-    image: vllm/vllm-openai:latest
-    ports:
-      - "8020:8000"
-    command: [
-      "--model", "Qwen/Qwen2-0.5B",
-      "--host", "0.0.0.0",
-      "--port", "8000",
-      "--gpu-memory-utilization", "0.7",
-      "--max-model-len", "2048",
-      "--tensor-parallel-size", "1"
-    ]
-    deploy:
-      resources:
-        limits:
-          cpus: "8"
-          memory: "16G"
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
-  # Ollama for local LLM inference (fallback)
+  # Ollama for local LLM inference
   ollama:
     image: ollama/ollama:latest
     # Allow Ollama to use up to 5 CPUs
@@ -303,7 +280,6 @@ services:
       - ollama_data:/root/.ollama
     environment:
       - OLLAMA_ORIGINS=*
-      - OLLAMA_GPU_LAYERS=0
     deploy:
       resources:
         limits:

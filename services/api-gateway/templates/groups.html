@@ -24,6 +24,7 @@
                         <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
                         <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
                         <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
                     </div>
                 </div>
             </div>
@@ -71,7 +72,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm text-gray-700">Name</label>
-                        <input id="name" class="mt-1 w-full border rounded px-3 py-2" required>
+                        <input id="name" class="mt-1 w-full border rounded px-3 py-2" placeholder="Enter a descriptive name for your podcast group" required>
                     </div>
                     <div>
                         <label class="block text-sm text-gray-700">Status</label>
@@ -91,11 +92,43 @@
                     </div>
                     <div>
                         <label class="block text-sm text-gray-700">Language</label>
-                        <input id="language" class="mt-1 w-full border rounded px-3 py-2" placeholder="en">
+                        <select id="language" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="en">English</option>
+                            <option value="es">Spanish</option>
+                            <option value="fr">French</option>
+                            <option value="de">German</option>
+                            <option value="it">Italian</option>
+                            <option value="pt">Portuguese</option>
+                            <option value="ru">Russian</option>
+                            <option value="ja">Japanese</option>
+                            <option value="ko">Korean</option>
+                            <option value="zh">Chinese</option>
+                        </select>
                     </div>
                     <div>
                         <label class="block text-sm text-gray-700">Country</label>
-                        <input id="country" class="mt-1 w-full border rounded px-3 py-2" placeholder="US">
+                        <select id="country" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="US">United States</option>
+                            <option value="UK">United Kingdom</option>
+                            <option value="CA">Canada</option>
+                            <option value="AU">Australia</option>
+                            <option value="DE">Germany</option>
+                            <option value="FR">France</option>
+                            <option value="ES">Spain</option>
+                            <option value="IT">Italy</option>
+                            <option value="JP">Japan</option>
+                            <option value="KR">South Korea</option>
+                            <option value="CN">China</option>
+                            <option value="IN">India</option>
+                            <option value="BR">Brazil</option>
+                            <option value="MX">Mexico</option>
+                            <option value="NL">Netherlands</option>
+                            <option value="SE">Sweden</option>
+                            <option value="NO">Norway</option>
+                            <option value="DK">Denmark</option>
+                            <option value="FI">Finland</option>
+                            <option value="CH">Switzerland</option>
+                        </select>
                     </div>
                     <div class="md:col-span-2">
                         <label class="block text-sm text-gray-700">Description</label>
@@ -110,24 +143,51 @@
                         <input id="keywords" class="mt-1 w-full border rounded px-3 py-2" placeholder="artificial intelligence, machine learning">
                     </div>
                     <div>
-                        <label class="block text-sm text-gray-700">Schedule (cron)</label>
-                        <input id="schedule" class="mt-1 w-full border rounded px-3 py-2" placeholder="0 9 * * *">
+                        <label class="block text-sm text-gray-700">Schedule</label>
+                        <select id="schedule" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="0 9 * * *">Daily (9 AM)</option>
+                            <option value="0 9 * * 1,4">Twice Weekly (Mon, Thu 9 AM)</option>
+                            <option value="0 9 * * 1">Weekly (Monday 9 AM)</option>
+                            <option value="0 9 1 * *">Monthly (1st of month 9 AM)</option>
+                        </select>
                     </div>
 
                     <div>
                         <label class="block text-sm text-gray-700">Writer</label>
-                        <select id="writer_id" class="mt-1 w-full border rounded px-3 py-2"></select>
+                        <div class="flex gap-2">
+                            <select id="writer_id" class="mt-1 flex-1 border rounded px-3 py-2"></select>
+                            <button type="button" id="btn-new-writer" class="mt-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                                <i class="bi bi-plus"></i>
+                            </button>
+                            <button type="button" id="btn-generate-writer" class="mt-1 px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                                <i class="bi bi-magic"></i>
+                            </button>
+                        </div>
                     </div>
 
                     <div class="md:col-span-2">
                         <label class="block text-sm text-gray-700">Presenters</label>
-                        <select id="presenter_ids" class="mt-1 w-full border rounded px-3 py-2" multiple></select>
-                        <p class="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+                        <div class="flex gap-2 mb-2">
+                            <select id="presenter_ids" class="flex-1 border rounded px-3 py-2" multiple></select>
+                            <button type="button" id="btn-generate-presenter" class="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                                <i class="bi bi-magic"></i> Generate
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500">Hold Ctrl/Cmd to select multiple</p>
                     </div>
 
                     <div class="md:col-span-2">
                         <label class="block text-sm text-gray-700">News Feeds</label>
-                        <select id="news_feed_ids" class="mt-1 w-full border rounded px-3 py-2" multiple></select>
+                        <div id="news-feeds-checkboxes" class="mt-1 max-h-32 overflow-y-auto border rounded p-2">
+                            <!-- Checkboxes will be populated here -->
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm text-gray-700">Collection</label>
+                        <select id="collection_id" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="">No Collection</option>
+                        </select>
                     </div>
                 </div>
                 <div class="flex justify-end space-x-2 pt-2">
@@ -199,10 +259,11 @@
         }
 
         async function loadOptions() {
-            const [presenters, writers, feeds] = await Promise.all([
+            const [presenters, writers, feeds, collections] = await Promise.all([
                 fetchJSON('/api/presenters'),
                 fetchJSON('/api/writers'),
-                fetchJSON('/api/news-feeds')
+                fetchJSON('/api/news-feeds'),
+                fetchJSON('/api/collections').catch(() => [])
             ]);
 
             const writerSel = $('#writer_id');
@@ -211,8 +272,19 @@
             const presenterSel = $('#presenter_ids');
             presenterSel.innerHTML = presenters.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
 
-            const feedsSel = $('#news_feed_ids');
-            feedsSel.innerHTML = feeds.map(f => `<option value="${f.id}">${f.name || f.source_url}</option>`).join('');
+            // Populate news feeds as checkboxes
+            const feedsContainer = $('#news-feeds-checkboxes');
+            feedsContainer.innerHTML = feeds.map(f => `
+                <label class="flex items-center space-x-2 py-1">
+                    <input type="checkbox" class="news-feed-checkbox" value="${f.id}" data-name="${f.name || f.source_url}">
+                    <span class="text-sm">${f.name || f.source_url}</span>
+                </label>
+            `).join('');
+
+            // Populate collections dropdown
+            const collectionSel = $('#collection_id');
+            collectionSel.innerHTML = '<option value="">No Collection</option>' + 
+                collections.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
         }
 
         async function loadGroups() {
@@ -226,15 +298,23 @@
             $('#status').value = group?.status || 'active';
             $('#category').value = group?.category || '';
             $('#subcategory').value = group?.subcategory || '';
-            $('#language').value = group?.language || '';
-            $('#country').value = group?.country || '';
+            $('#language').value = group?.language || 'en';
+            $('#country').value = group?.country || 'US';
             $('#description').value = group?.description || '';
             $('#tags').value = (group?.tags || []).join(', ');
             $('#keywords').value = (group?.keywords || []).join(', ');
-            $('#schedule').value = group?.schedule || '';
+            $('#schedule').value = group?.schedule || '0 9 * * *';
             if (group?.writer_id) $('#writer_id').value = group.writer_id;
             setMultiSelect($('#presenter_ids'), (group?.presenters || []).map(p => p.id));
-            setMultiSelect($('#news_feed_ids'), (group?.news_feeds || []).map(f => f.id));
+            
+            // Set news feed checkboxes
+            const selectedFeedIds = new Set((group?.news_feeds || []).map(f => String(f.id)));
+            $$('.news-feed-checkbox').forEach(checkbox => {
+                checkbox.checked = selectedFeedIds.has(String(checkbox.value));
+            });
+            
+            // Set collection
+            $('#collection_id').value = group?.collection_id || '';
         }
 
         function gatherFormData() {
@@ -251,7 +331,8 @@
                 schedule: $('#schedule').value || null,
                 writer_id: $('#writer_id').value || null,
                 presenter_ids: $$('#presenter_ids option').filter(o=>o.selected).map(o=>o.value),
-                news_feed_ids: $$('#news_feed_ids option').filter(o=>o.selected).map(o=>o.value)
+                news_feed_ids: $$('.news-feed-checkbox').filter(cb=>cb.checked).map(cb=>cb.value),
+                collection_id: $('#collection_id').value || null
             };
         }
 
@@ -263,6 +344,65 @@
                 fillForm({});
                 await loadOptions();
                 openModal('New Group');
+                return;
+            }
+            if (btn.id === 'btn-new-writer') {
+                const name = prompt('Enter writer name:');
+                if (name) {
+                    try {
+                        const newWriter = await fetchJSON('/api/writers', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, style: 'Professional' })
+                        });
+                        await loadOptions();
+                        $('#writer_id').value = newWriter.id;
+                    } catch (error) {
+                        alert('Error creating writer: ' + error.message);
+                    }
+                }
+                return;
+            }
+            if (btn.id === 'btn-generate-writer') {
+                const category = $('#category').value || 'General';
+                const subcategory = $('#subcategory').value || '';
+                try {
+                    const newWriter = await fetchJSON('/api/writers/auto-generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            group_id: $('#group-id').value || '00000000-0000-0000-0000-000000000000',
+                            category: category,
+                            subcategory: subcategory
+                        })
+                    });
+                    await loadOptions();
+                    $('#writer_id').value = newWriter.writer_id;
+                } catch (error) {
+                    alert('Error generating writer: ' + error.message);
+                }
+                return;
+            }
+            if (btn.id === 'btn-generate-presenter') {
+                const category = $('#category').value || 'General';
+                const subcategory = $('#subcategory').value || '';
+                try {
+                    const newPresenter = await fetchJSON('/api/overseer/generate-presenter', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            group_category: category,
+                            subcategory: subcategory
+                        })
+                    });
+                    await loadOptions();
+                    // Add to selected presenters
+                    const presenterSelect = $('#presenter_ids');
+                    const option = presenterSelect.querySelector(`option[value="${newPresenter.id}"]`);
+                    if (option) option.selected = true;
+                } catch (error) {
+                    alert('Error generating presenter: ' + error.message);
+                }
                 return;
             }
             const id = btn.getAttribute('data-id');

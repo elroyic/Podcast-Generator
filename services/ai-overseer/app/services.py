@@ -496,6 +496,9 @@ Generate a complete persona that would be perfect for hosting a {group_category}
             # Validate and enhance persona data
             persona_data = self._validate_persona_data(persona_data, group_category)
             
+            # Check for duplicate names and make unique if needed
+            persona_data = self._ensure_unique_name(persona_data, group_category)
+            
             logger.info(f"Successfully generated persona: {persona_data.get('name', 'Unknown')}")
             return persona_data
             
@@ -504,6 +507,241 @@ Generate a complete persona that would be perfect for hosting a {group_category}
             # Return a fallback persona
             return self._create_fallback_persona("", group_category)
     
+    async def generate_writer_persona(
+        self,
+        group_id: UUID,
+        group_category: str = "General",
+        recent_articles: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Generate a writer persona using LLM."""
+        try:
+            logger.info(f"Generating writer persona for {group_category} group {group_id}")
+            
+            # Get recent article titles for context
+            if not recent_articles:
+                db = get_db_session()
+                try:
+                    group = db.query(PodcastGroup).filter(PodcastGroup.id == group_id).first()
+                    if group and group.news_feeds:
+                        feed_ids = [feed.id for feed in group.news_feeds]
+                        articles = db.query(Article).filter(
+                            Article.feed_id.in_(feed_ids)
+                        ).order_by(Article.created_at.desc()).limit(10).all()
+                        recent_articles = [article.title for article in articles]
+                finally:
+                    db.close()
+            
+            # Create prompts
+            system_prompt = self._create_writer_system_prompt()
+            content_prompt = self._create_writer_content_prompt(group_category, recent_articles or [])
+            
+            # Use text generation service to create writer persona
+            request_data = {
+                "group_id": str(group_id),
+                "article_summaries": [{"title": title, "summary": "", "link": ""} for title in (recent_articles or [])],
+                "target_duration_minutes": 1,  # Not used for writer generation
+                "style_preferences": {
+                    "task": "writer_generation",
+                    "system_prompt": system_prompt,
+                    "content_prompt": content_prompt
+                }
+            }
+            
+            # Make a custom request to text generation service
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "http://text-generation:8002/generate-script",
+                    json=request_data
+                )
+                response.raise_for_status()
+                result = response.json()
+            
+            # Extract writer persona from the generated script
+            script = result.get("script", "")
+            
+            # Try to parse JSON from the script
+            try:
+                # Look for JSON in the script
+                import re
+                json_match = re.search(r'\{.*\}', script, re.DOTALL)
+                if json_match:
+                    writer_data = json.loads(json_match.group())
+                else:
+                    # Fallback: create writer from script content
+                    writer_data = self._create_fallback_writer(script, group_category)
+            except json.JSONDecodeError:
+                # Fallback: create writer from script content
+                writer_data = self._create_fallback_writer(script, group_category)
+            
+            # Validate and enhance writer data
+            writer_data = self._validate_writer_data(writer_data, group_category)
+            
+            logger.info(f"Successfully generated writer: {writer_data.get('name', 'Unknown')}")
+            return writer_data
+            
+        except Exception as e:
+            logger.error(f"Error generating writer persona: {e}")
+            # Return a fallback writer
+            return self._create_fallback_writer("", group_category)
+    
+    def _create_writer_system_prompt(self) -> str:
+        """Create system prompt for writer generation."""
+        return """
+You are an expert at creating engaging podcast writer personas. Generate unique, professional, and skilled writer characters that would be perfect for creating podcast content.
+
+For each writer, create:
+1. A distinctive name that fits the character
+2. A compelling bio that shows writing expertise and background
+3. A detailed writing style description with tone, approach, and specialties
+4. Writing characteristics and content creation patterns
+5. A system prompt that defines how this writer should behave
+
+Make each writer:
+- Unique and professional
+- Skilled in content creation
+- Knowledgeable in their field
+- Suited for podcast script writing
+- Distinctive in writing style
+- Engaging and informative
+
+Return your response as valid JSON with the following structure:
+{
+    "name": "Writer Name",
+    "bio": "Brief bio describing the writer's background and expertise",
+    "style": "Writing style description including tone, approach, and specialties",
+    "specialties": ["expertise area 1", "expertise area 2"],
+    "system_prompt": "System prompt that defines how this writer should behave when creating content"
+}
+"""
+    
+    def _create_writer_content_prompt(self, group_category: str, recent_articles: List[str]) -> str:
+        """Create content prompt for writer generation based on group context."""
+        articles_context = ""
+        if recent_articles:
+            articles_context = f"""
+Recent article topics to consider for expertise areas:
+{chr(10).join([f"- {article[:100]}..." for article in recent_articles[:5]])}
+"""
+        
+        return f"""
+Create a unique podcast writer persona for a {group_category} podcast.
+
+{articles_context}
+
+Requirements:
+- The writer should be well-suited for {group_category} content
+- Make them knowledgeable and skilled in content creation
+- Give them a distinctive writing style and approach
+- Include specific expertise areas relevant to {group_category}
+- Make them professional and engaging
+- Ensure they would be good at creating compelling podcast scripts
+
+Generate a complete writer persona that would be perfect for writing {group_category} podcast content.
+"""
+    
+    def _create_fallback_writer(self, script_content: str, category: str) -> Dict[str, Any]:
+        """Create a fallback writer when LLM generation fails."""
+        category_lower = category.lower()
+        
+        # Generate unique writer based on category and timestamp
+        import time
+        timestamp = str(int(time.time()))
+        seed = hashlib.md5(f"{category}_{timestamp}".encode()).hexdigest()
+        writer_index = int(seed[:2], 16) % 4
+        
+        writers = [
+            {
+                "name": f"Jordan {category} Writer",
+                "bio": f"Experienced content writer specializing in {category} topics with a passion for creating engaging podcast scripts.",
+                "style": f"Professional, informative, and engaging writing style perfect for {category} content.",
+                "specialties": [category.lower(), "content creation", "script writing"],
+                "system_prompt": f"You are a skilled writer creating {category} podcast content. Focus on clarity, engagement, and accuracy."
+            },
+            {
+                "name": f"Casey {category} Content Creator",
+                "bio": f"Creative writer with expertise in {category} and a talent for making complex topics accessible.",
+                "style": f"Clear, conversational, and educational writing approach for {category} audiences.",
+                "specialties": [category.lower(), "educational content", "podcast scripts"],
+                "system_prompt": f"You are a content creator specializing in {category} podcast scripts. Make information accessible and engaging."
+            },
+            {
+                "name": f"Morgan {category} Scriptwriter",
+                "bio": f"Professional scriptwriter with deep knowledge of {category} and experience in audio content creation.",
+                "style": f"Structured, compelling, and audience-focused writing for {category} podcast content.",
+                "specialties": [category.lower(), "script writing", "audio content"],
+                "system_prompt": f"You are a professional scriptwriter creating {category} podcast content. Focus on structure and audience engagement."
+            },
+            {
+                "name": f"Taylor {category} Storyteller",
+                "bio": f"Storytelling expert who specializes in bringing {category} topics to life through compelling narratives.",
+                "style": f"Narrative-driven, engaging, and memorable writing style for {category} content.",
+                "specialties": [category.lower(), "storytelling", "narrative content"],
+                "system_prompt": f"You are a storyteller creating {category} podcast content. Use narrative techniques to make content memorable."
+            }
+        ]
+        
+        return writers[writer_index]
+    
+    def _validate_writer_data(self, writer_data: Dict[str, Any], category: str) -> Dict[str, Any]:
+        """Validate and enhance writer data."""
+        # Ensure required fields exist
+        if "name" not in writer_data:
+            writer_data["name"] = f"{category} Writer"
+        
+        if "bio" not in writer_data:
+            writer_data["bio"] = f"Professional writer specializing in {category} content."
+        
+        if "style" not in writer_data:
+            writer_data["style"] = f"Professional writing style for {category} content."
+        
+        if "specialties" not in writer_data:
+            writer_data["specialties"] = [category.lower(), "content creation"]
+        
+        if "system_prompt" not in writer_data:
+            writer_data["system_prompt"] = f"You are a professional writer creating {category} podcast content."
+        
+        return writer_data
+
+    def _ensure_unique_name(self, persona_data: Dict[str, Any], category: str) -> Dict[str, Any]:
+        """Ensure the persona name is unique by checking existing presenters."""
+        try:
+            db = get_db_session()
+            try:
+                base_name = persona_data.get("name", f"AI {category} Presenter")
+                existing_names = set()
+                
+                # Get all existing presenter names
+                presenters = db.query(Presenter).all()
+                for presenter in presenters:
+                    if presenter.name:
+                        existing_names.add(presenter.name.lower())
+                
+                # If name is unique, return as-is
+                if base_name.lower() not in existing_names:
+                    return persona_data
+                
+                # Generate unique name by appending numbers
+                counter = 1
+                while f"{base_name} {counter}".lower() in existing_names:
+                    counter += 1
+                
+                unique_name = f"{base_name} {counter}"
+                persona_data["name"] = unique_name
+                logger.info(f"Generated unique name: {unique_name}")
+                
+                return persona_data
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Error ensuring unique name: {e}")
+            # Fallback: add timestamp to make unique
+            import time
+            timestamp = int(time.time()) % 10000
+            persona_data["name"] = f"{persona_data.get('name', 'AI Presenter')} {timestamp}"
+            return persona_data
+
     def _create_fallback_persona(self, script_content: str, category: str) -> Dict[str, Any]:
         """Create a fallback persona when LLM generation fails."""
         category_lower = category.lower()

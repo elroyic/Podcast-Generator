@@ -64,9 +64,9 @@ services:
     build:
       context: ./services/ai-overseer
       dockerfile: Dockerfile
-    command: python main_enhanced.py
+    command: python main.py
     ports:
-      - 8012:8012
+      - 8012:8006
     depends_on:
       - reviewer
       - editor

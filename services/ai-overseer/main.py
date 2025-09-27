@@ -672,6 +672,9 @@ async def cleanup_old_data(background_tasks: BackgroundTasks):
             "message": "Cleanup task queued",
             "task_id": task.id
         }
+    except Exception as e:
+        logger.error(f"❌ Error queuing cleanup task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue cleanup task: {str(e)}")
 
 
 @app.get("/cadence/status")
@@ -781,6 +784,49 @@ async def auto_generate_presenter_persona(
     except Exception as e:
         logger.error(f"❌ Error generating presenter persona: {e}")
         raise HTTPException(status_code=500, detail=f"Persona generation failed: {str(e)}")
+
+
+@app.post("/api/writers/auto-generate")
+async def auto_generate_writer_persona(
+    request: PersonaGenerationRequest,
+    db: Session = Depends(get_db)
+):
+    """Generate a writer persona using LLM and create the writer."""
+    try:
+        logger.info(f"✍️ Generating writer persona for group {request.group_id}")
+        
+        # Generate writer persona using LLM
+        writer_data = await persona_generation_service.generate_writer_persona(
+            group_id=request.group_id,
+            group_category=request.category,
+            recent_articles=request.recent_articles
+        )
+        
+        # Create writer record in database
+        writer = Writer(
+            name=writer_data["name"],
+            model="Ollama",
+            capabilities=writer_data["specialties"]
+        )
+        
+        db.add(writer)
+        db.commit()
+        db.refresh(writer)
+        
+        logger.info(f"✅ Created writer: {writer.name} (ID: {writer.id})")
+        
+        return {
+            "name": writer_data["name"],
+            "bio": writer_data["bio"],
+            "style": writer_data["style"],
+            "specialties": writer_data["specialties"],
+            "created": True,
+            "writer_id": str(writer.id)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating writer persona: {e}")
+        raise HTTPException(status_code=500, detail=f"Writer generation failed: {str(e)}")
 
 
 # Import Celery tasks

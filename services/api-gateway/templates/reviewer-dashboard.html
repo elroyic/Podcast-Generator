@@ -25,6 +25,7 @@
                         <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
                         <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
                         <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
                     </div>
                 </div>
             </div>
@@ -302,8 +303,52 @@
                     queueEl.className = 'text-lg font-medium text-green-600';
                 }
 
+                // Update recent activity
+                await updateRecentActivity();
+
             } catch (error) {
                 console.error('Error updating metrics:', error);
+            }
+        }
+
+        // Update recent activity log
+        async function updateRecentActivity() {
+            try {
+                const response = await fetch('/api/reviewer/queue/status');
+                const status = await response.json();
+                
+                const actionsLog = $('#actions-log');
+                const now = new Date().toLocaleTimeString();
+                
+                // Create activity entries
+                const activities = [];
+                
+                if (status.queue_length > 0) {
+                    activities.push(`[${now}] Queue: ${status.queue_length} items pending`);
+                }
+                
+                if (status.worker_status === 'running') {
+                    activities.push(`[${now}] Worker: Active and processing`);
+                } else {
+                    activities.push(`[${now}] Worker: ${status.worker_status}`);
+                }
+                
+                // Add recent metrics as activity
+                const metricsResponse = await fetch('/api/reviewer/metrics');
+                const metrics = await metricsResponse.json();
+                
+                if (metrics.last_5m.total_light > 0 || metrics.last_5m.total_heavy > 0) {
+                    activities.push(`[${now}] Last 5min: ${metrics.last_5m.total_light} light, ${metrics.last_5m.total_heavy} heavy reviews`);
+                }
+                
+                // Update the log (keep last 10 entries)
+                const existingEntries = actionsLog.innerHTML.split('<br>').filter(line => line.trim());
+                const allEntries = [...activities, ...existingEntries].slice(0, 10);
+                actionsLog.innerHTML = allEntries.join('<br>');
+                
+            } catch (error) {
+                console.error('Error updating activity log:', error);
+                $('#actions-log').innerHTML = '<div class="text-red-500">Error loading activity log</div>';
             }
         }
 

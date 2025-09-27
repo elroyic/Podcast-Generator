@@ -1,5 +1,5 @@
 """
-Heavy Reviewer Service - High-quality article review using Qwen3-4B-Thinking-2507 via vLLM.
+Heavy Reviewer Service - High-quality article review using Qwen3:4B via Ollama.
 Optimized for accuracy with higher latency (~1200ms per feed).
 """
 import logging
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Heavy Reviewer Service", version="1.0.0")
 
 # Configuration
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen3-4B-Thinking-2507")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+MODEL_NAME = os.getenv("MODEL_NAME", "qwen3:4b")
 PORT = int(os.getenv("PORT", "8000"))
 
 
@@ -49,39 +49,37 @@ class HealthResponse(BaseModel):
     avg_latency_ms: float
 
 
-class VLLMClient:
-    """Client for vLLM API."""
+class OllamaClient:
+    """Client for Ollama API."""
     
-    def __init__(self, base_url: str = VLLM_BASE_URL):
+    def __init__(self, base_url: str = OLLAMA_BASE_URL):
         self.base_url = base_url
         self.client = httpx.AsyncClient(timeout=60.0)  # Longer timeout for heavy model
     
     async def generate_review(self, prompt: str) -> str:
-        """Generate review using vLLM."""
+        """Generate review using Ollama."""
         try:
             payload = {
-                "model": "Qwen/Qwen2-0.5B",
-                "messages": [
-                    {"role": "system", "content": "You are a comprehensive news article analyzer. You must respond in the exact format requested. Do not add explanations or extra text."},
-                    {"role": "user", "content": prompt}
-                ],
-                "max_tokens": 300,
-                "temperature": 0.1,  # Lower temperature for more consistent results
-                "top_p": 0.9,
-                "stop": ["\n\n"]
+                "model": MODEL_NAME,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.1,
+                    "top_p": 0.9,
+                    "num_predict": 300
+                }
             }
             
             response = await self.client.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self.base_url}/api/generate",
                 json=payload
             )
             response.raise_for_status()
-            
             result = response.json()
-            return result["choices"][0]["message"]["content"]
-            
+            return result["response"]
         except Exception as e:
-            logger.error(f"Error generating review with vLLM: {e}")
+            logger.error(f"Ollama API error: {e}")
+            raise
             raise HTTPException(status_code=500, detail=f"Review generation failed: {str(e)}")
 
 
@@ -89,7 +87,7 @@ class HeavyReviewer:
     """Heavy reviewer for high-quality article categorization."""
     
     def __init__(self):
-        self.vllm_client = VLLMClient()
+        self.ollama_client = OllamaClient()
         self.latency_history = []
     
     def create_review_prompt(self, request: FeedReviewRequest) -> str:
@@ -197,7 +195,7 @@ Response:"""
         
         try:
             prompt = self.create_review_prompt(request)
-            response = await self.vllm_client.generate_review(prompt)
+            response = await self.ollama_client.generate_review(prompt)
             result = self.parse_review_response(response)
             
             # Record latency

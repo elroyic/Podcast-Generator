@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 
 from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed
+from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection
 from shared.schemas import (
     PodcastGroup as PodcastGroupSchema,
     PodcastGroupCreate,
@@ -67,7 +67,7 @@ SERVICE_URLS = {
     # Internal-only services (no host port mapping needed)
     "publishing": "http://publishing:8005",
     # Correct port for enhanced overseer service
-    "ai-overseer": "http://ai-overseer:8012",
+    "ai-overseer": "http://ai-overseer:8006",
     "reviewer": "http://reviewer:8008",
 }
 
@@ -153,7 +153,10 @@ async def login(credentials: Dict[str, str] = Body(...), request: Request = None
     password = credentials.get("password")
     
     # Simple hardcoded admin credentials (in production, use proper user management)
-    if username == "elroyic" and password == os.getenv("ADMIN_PASSWORD", "tunnels"):
+    # Read admin credentials from environment
+    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    if username == admin_username and password == admin_password:
         token = create_jwt_token(username)
         # Set cookie via response in frontend fetch handler
         from fastapi.responses import JSONResponse
@@ -362,6 +365,15 @@ async def collections_dashboard(request: Request):
     redirect = require_html_auth(request)
     if redirect: return redirect
     return templates.TemplateResponse("collections-dashboard.html", {"request": request})
+
+
+# Writers Management Page
+@app.get("/writers", response_class=HTMLResponse)
+async def writers_page(request: Request):
+    """Render the Writers Management UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("writers.html", {"request": request})
 
 
 # Management endpoints
@@ -819,6 +831,46 @@ async def create_writer(
     return writer
 
 
+@app.get("/api/writers/{writer_id}", response_model=WriterSchema)
+async def get_writer(writer_id: str, db: Session = Depends(get_db)):
+    """Get a specific writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    return writer
+
+
+@app.put("/api/writers/{writer_id}", response_model=WriterSchema)
+async def update_writer(
+    writer_id: str,
+    writer_data: WriterCreate,
+    db: Session = Depends(get_db)
+):
+    """Update a writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    for key, value in writer_data.dict().items():
+        setattr(writer, key, value)
+    
+    db.commit()
+    db.refresh(writer)
+    return writer
+
+
+@app.delete("/api/writers/{writer_id}")
+async def delete_writer(writer_id: str, db: Session = Depends(get_db)):
+    """Delete a writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    db.delete(writer)
+    db.commit()
+    return {"message": "Writer deleted successfully"}
+
+
 # News Feeds API
 @app.get("/api/news-feeds", response_model=List[NewsFeedSchema])
 async def list_news_feeds(db: Session = Depends(get_db)):
@@ -1161,6 +1213,12 @@ async def auto_generate_presenter_persona(request: dict):
     return await call_service("ai-overseer", "POST", "/api/presenters/auto-generate", json=request)
 
 
+@app.post("/api/writers/auto-generate")
+async def auto_generate_writer_persona(request: dict):
+    """Generate a writer persona using LLM."""
+    return await call_service("ai-overseer", "POST", "/api/writers/auto-generate", json=request)
+
+
 @app.post("/api/news-feed/refresh/{feed_id}")
 async def refresh_feed(feed_id: UUID, db: Session = Depends(get_db)):
     """Trigger a manual refresh of a specific news feed."""
@@ -1253,32 +1311,29 @@ async def refresh_all_feeds(db: Session = Depends(get_db)):
 @app.get("/api/collections/stats")
 async def get_collections_stats(db: Session = Depends(get_db)):
     """Get collections statistics."""
-    from shared.models import Collection, Article
-    
-    # Get total collections
-    total_collections = db.query(Collection).count()
-    
-    # Get ready collections
-    ready_collections = db.query(Collection).filter(Collection.status == "ready").count()
-    
-    # Get processing collections
-    processing_collections = db.query(Collection).filter(Collection.status == "processing").count()
-    
-    # Get total articles in collections
-    total_articles = db.query(Article).join(Collection).count()
-    
-    return {
-        "total_collections": total_collections,
-        "ready_collections": ready_collections,
-        "processing_collections": processing_collections,
-        "total_articles": total_articles
-    }
+    try:
+        # Get stats from Collections service
+        return await call_service("collections", "GET", "/collections/stats")
+    except Exception as e:
+        logger.error(f"Error getting collections stats: {e}")
+        # Fallback to database query
+        from shared.models import Article
+        
+        # Get total articles (collections are managed by the service)
+        total_articles = db.query(Article).count()
+        
+        return {
+            "total_collections": 0,
+            "ready_collections": 0,
+            "processing_collections": 0,
+            "total_articles": total_articles
+        }
 
 
 @app.get("/api/collections")
 async def list_collections(db: Session = Depends(get_db)):
     """List all collections."""
-    from shared.models import Collection, PodcastGroup
+    from shared.models import Collection, PodcastGroup, Article
     
     collections = db.query(Collection).all()
     

@@ -25,6 +25,7 @@
                         <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
                         <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
                         <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
                     </div>
                 </div>
             </div>
@@ -206,17 +207,16 @@
             <div class="p-4 space-y-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                        <select id="persona-category" class="w-full border rounded px-3 py-2">
-                            <option value="Technology">Technology</option>
-                            <option value="News">News</option>
-                            <option value="Finance">Finance</option>
-                            <option value="General">General</option>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Podcast Group</label>
+                        <select id="persona-group-id" class="w-full border rounded px-3 py-2">
+                            <option value="">Select a group (optional)</option>
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Group ID (Optional)</label>
-                        <input id="persona-group-id" type="text" class="w-full border rounded px-3 py-2" placeholder="Leave empty for general persona">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                        <select id="persona-category" class="w-full border rounded px-3 py-2">
+                            <option value="General">General</option>
+                        </select>
                     </div>
                 </div>
                 
@@ -365,10 +365,61 @@
         }
 
         // Persona generation functions
-        function openPersonaModal() {
+        async function openPersonaModal() {
+            await loadGroupsForPersona();
             $('#persona-modal').classList.remove('hidden');
             $('#persona-modal').classList.add('flex');
             $('#persona-preview').classList.add('hidden');
+        }
+
+        async function loadGroupsForPersona() {
+            try {
+                const response = await fetch('/api/podcast-groups');
+                const groups = await response.json();
+                
+                const groupSelect = $('#persona-group-id');
+                const categorySelect = $('#persona-category');
+                
+                // Clear existing options except first
+                groupSelect.innerHTML = '<option value="">Select a group (optional)</option>';
+                categorySelect.innerHTML = '<option value="General">General</option>';
+                
+                // Add groups
+                groups.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.id;
+                    option.textContent = `${group.name} (${group.category || 'General'})`;
+                    groupSelect.appendChild(option);
+                });
+                
+                // Add unique categories from groups
+                const categories = new Set(['General']);
+                groups.forEach(group => {
+                    if (group.category) {
+                        categories.add(group.category);
+                    }
+                });
+                
+                categories.forEach(category => {
+                    if (category !== 'General') {
+                        const option = document.createElement('option');
+                        option.value = category;
+                        option.textContent = category;
+                        categorySelect.appendChild(option);
+                    }
+                });
+                
+                // Auto-select category when group changes
+                groupSelect.addEventListener('change', (e) => {
+                    const selectedGroup = groups.find(g => g.id === e.target.value);
+                    if (selectedGroup && selectedGroup.category) {
+                        categorySelect.value = selectedGroup.category;
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error loading groups:', error);
+            }
         }
 
         function closePersonaModal() {

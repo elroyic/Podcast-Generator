@@ -206,7 +206,12 @@ Acceptance Criteria
 - Added `USE_WRITER_FOR_SCRIPT` env toggle in Overseer (defaults to true; falls back to Text‑Generation when false)
 - Fixed episode download redirect for local `file://` audio URLs to public `/storage/...` path via gateway
 - Mapped reviewer histogram (20×0.05 buckets) to 5×0.20 buckets in Reviewer Dashboard UI
-- Added “Cadence Status” table to dashboard, backed by `/api/cadence/status`
+- Added "Cadence Status" table to dashboard, backed by `/api/cadence/status`
+- Updated login to read `ADMIN_USERNAME` and `ADMIN_PASSWORD` from environment variables
+- Fixed presenter persona modal to load categories from groups with collections dynamically
+- Added unique name checking to prevent duplicate presenter personas
+- Fixed collections article count display by proxying to Collections service
+- Added recent activity feed to reviewer dashboard showing queue status and worker activity
 
 ---
 
