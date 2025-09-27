@@ -62,12 +62,13 @@ class VLLMClient:
             payload = {
                 "model": "Qwen/Qwen2-0.5B",
                 "messages": [
+                    {"role": "system", "content": "You are a news article analyzer. You must respond in the exact format requested. Do not add explanations or extra text."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 500,
-                "temperature": 0.3,
-                "top_p": 0.8,
-                "stop": ["</review>", "\n\n\n"]
+                "max_tokens": 200,
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "stop": ["\n\n"]
             }
             
             response = await self.client.post(
@@ -93,26 +94,27 @@ class LightReviewer:
     
     def create_review_prompt(self, request: FeedReviewRequest) -> str:
         """Create optimized prompt for light review."""
-        return f"""<review>
+        return f"""Example:
+Title: Apple announces new AI features for iPhone
+Content: Apple Inc. today announced significant updates to its iPhone lineup, focusing heavily on artificial intelligence integration.
+
+Response:
+TAGS: technology, ai, innovation
+SUMMARY: Apple announces new AI features for iPhone
+CONFIDENCE: 0.85
+
+Now analyze this article:
 Title: {request.title}
 Content: {request.content[:1000]}
-URL: {request.url}
-Published: {request.published}
 
-Analyze this news article and provide:
-1. 3-5 relevant tags (comma-separated)
-2. Brief summary (max 200 chars)
-3. Confidence score (0.0-1.0) for topic classification
-
-Format:
-TAGS: tag1, tag2, tag3
-SUMMARY: Brief summary here
-CONFIDENCE: 0.85
-</review>"""
+Response:"""
     
     def parse_review_response(self, response: str) -> Dict[str, Any]:
         """Parse the vLLM response into structured data."""
         try:
+            # Debug: log the raw response
+            logger.info(f"Raw light reviewer response: {response[:200]}...")
+            
             lines = response.strip().split('\n')
             tags = []
             summary = ""

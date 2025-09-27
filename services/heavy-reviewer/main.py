@@ -62,12 +62,13 @@ class VLLMClient:
             payload = {
                 "model": "Qwen/Qwen2-0.5B",
                 "messages": [
+                    {"role": "system", "content": "You are a comprehensive news article analyzer. You must respond in the exact format requested. Do not add explanations or extra text."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 800,
-                "temperature": 0.2,  # Lower temperature for more consistent results
-                "top_p": 0.7,
-                "stop": ["</review>", "\n\n\n"]
+                "max_tokens": 300,
+                "temperature": 0.1,  # Lower temperature for more consistent results
+                "top_p": 0.9,
+                "stop": ["\n\n"]
             }
             
             response = await self.client.post(
@@ -93,44 +94,29 @@ class HeavyReviewer:
     
     def create_review_prompt(self, request: FeedReviewRequest) -> str:
         """Create comprehensive prompt for heavy review."""
-        return f"""<review>
+        return f"""Example:
+Title: Apple announces new AI features for iPhone
+Content: Apple Inc. today announced significant updates to its iPhone lineup, focusing heavily on artificial intelligence integration.
+
+Response:
+TOPIC: Technology
+SUBJECT: Artificial Intelligence
+TAGS: technology, ai, innovation, mobile
+SUMMARY: Apple announces new AI features for iPhone
+CONFIDENCE: 0.85
+
+Now analyze this article:
 Title: {request.title}
 Content: {request.content[:2000]}
-URL: {request.url}
-Published: {request.published}
 
-Perform a comprehensive analysis of this news article:
-
-1. CATEGORIZATION:
-   - Identify the primary topic (e.g., Finance, Technology, Politics, Health, etc.)
-   - Determine the specific subject within that topic
-   - Assess the importance and relevance
-
-2. TAGGING:
-   - Generate 3-5 precise, relevant tags
-   - Include trending keywords where applicable
-   - Consider both primary and secondary themes
-
-3. SUMMARIZATION:
-   - Create a concise, informative summary (max 300 chars)
-   - Capture the key points and implications
-   - Maintain objectivity and clarity
-
-4. CONFIDENCE ASSESSMENT:
-   - Rate your confidence in the topic classification (0.0-1.0)
-   - Consider content clarity, topic specificity, and your certainty
-
-Format your response as:
-TOPIC: [Primary topic]
-SUBJECT: [Specific subject]
-TAGS: [tag1, tag2, tag3, tag4, tag5]
-SUMMARY: [Comprehensive summary]
-CONFIDENCE: [0.0-1.0]
-</review>"""
+Response:"""
     
     def parse_review_response(self, response: str) -> Dict[str, Any]:
         """Parse the vLLM response into structured data."""
         try:
+            # Debug: log the raw response
+            logger.info(f"Raw heavy reviewer response: {response[:200]}...")
+            
             lines = response.strip().split('\n')
             topic = "General"
             subject = "General"
