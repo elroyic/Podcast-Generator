@@ -819,6 +819,32 @@ async def refresh_feed(feed_id: UUID, db: Session = Depends(get_db)):
         return {"success": False, "error": str(e), "entries_processed": 0}
 
 
+@app.post("/api/news-feed/refresh-all")
+async def refresh_all_feeds(db: Session = Depends(get_db)):
+    """Trigger refresh for all active news feeds via the news-feed service."""
+    try:
+        # Get all active feeds
+        feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).all()
+
+        triggered = 0
+        errors: list[str] = []
+
+        for feed in feeds:
+            try:
+                await call_service("news-feed", "POST", f"/feeds/{feed.id}/fetch")
+                triggered += 1
+            except Exception as e:
+                errors.append(f"{feed.id}: {str(e)}")
+
+        return {
+            "success": len(errors) == 0,
+            "triggered": triggered,
+            "errors": errors,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to trigger feed refresh: {str(e)}")
+
+
 # Collections API endpoints
 @app.get("/api/collections/stats")
 async def get_collections_stats(db: Session = Depends(get_db)):

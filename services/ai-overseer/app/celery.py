@@ -29,22 +29,26 @@ celery.conf.update(
     worker_max_tasks_per_child=1000,
 )
 
-# Beat schedule for periodic tasks
+# Beat schedule for periodic tasks (configurable via env)
+FEED_FETCH_INTERVAL_MINUTES = float(os.getenv("FEED_FETCH_INTERVAL_MINUTES", "15"))
+COLLECTION_BUILD_INTERVAL_MINUTES = float(os.getenv("COLLECTION_BUILD_INTERVAL_MINUTES", "10"))
+REVIEW_DISPATCH_INTERVAL_MINUTES = float(os.getenv("REVIEW_DISPATCH_INTERVAL_MINUTES", "5"))
+
 celery.conf.beat_schedule = {
     "check-scheduled-groups": {
         "task": "app.tasks.check_scheduled_groups",
-        "schedule": 7200.0,  # Every 2 hours
+        "schedule": 2 * 60 * 60.0,  # Every 2 hours
     },
     "fetch-news-feeds": {
         "task": "app.tasks.fetch_all_news_feeds",
-        "schedule": 300.0,  # Every 5 minutes
+        "schedule": FEED_FETCH_INTERVAL_MINUTES * 60.0,
     },
     "create-collections": {
         "task": "app.tasks.create_collections_from_articles",
-        "schedule": 600.0,  # Every 10 minutes
+        "schedule": COLLECTION_BUILD_INTERVAL_MINUTES * 60.0,
     },
     "send-articles-to-reviewer": {
         "task": "app.tasks.send_articles_to_reviewer",
-        "schedule": 300.0,  # Every 5 minutes
+        "schedule": REVIEW_DISPATCH_INTERVAL_MINUTES * 60.0,
     },
 }

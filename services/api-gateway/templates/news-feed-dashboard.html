@@ -321,8 +321,23 @@
             }
         }
 
-        function refreshAllFeeds() {
-            alert('Refresh All Feeds functionality - to be implemented');
+        async function refreshAllFeeds() {
+            try {
+                const resp = await fetch('/api/news-feed/refresh-all', { method: 'POST' });
+                const data = await resp.json();
+                if (resp.ok && data) {
+                    const msg = `Triggered refresh for ${data.triggered || 0} feed(s)` + (data.errors && data.errors.length ? `, errors: ${data.errors.length}` : '');
+                    alert(`✅ ${msg}`);
+                    loadFeedStats();
+                    loadFeeds();
+                    setTimeout(loadRecentArticles, 3000);
+                } else {
+                    alert(`❌ Failed to refresh feeds: ${data.detail || 'Unknown error'}`);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('❌ Error refreshing feeds: ' + err.message);
+            }
         }
 
         function addNewFeed() {
