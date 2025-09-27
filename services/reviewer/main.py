@@ -2,9 +2,12 @@
 Reviewer Service – Two-tier Light/Heavy orchestration with Redis-backed config and metrics.
 Backwards-compatible with existing /review-article endpoint; now persists review fields on Article.
 """
+import asyncio
 import json
 import logging
 import os
+import threading
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from uuid import UUID
@@ -324,10 +327,99 @@ class ArticleReviewer:
 # Initialize services
 article_reviewer = ArticleReviewer()
 
+# Queue worker state
+queue_worker_running = False
+queue_worker_thread = None
+
+def queue_worker():
+    """Background worker to process queue items continuously."""
+    global queue_worker_running
+    
+    logger.info("Queue worker started")
+    r = redis.from_url(REDIS_URL)
+    
+    while queue_worker_running:
+        try:
+            # Get one item from the queue (blocking with timeout)
+            raw_item = r.brpop(article_reviewer.queue_key, timeout=5)
+            
+            if raw_item is None:
+                # No items in queue, continue
+                continue
+                
+            # Parse the queue item
+            item_data = json.loads(raw_item[1])
+            request = FeedReviewRequest(**{k: v for k, v in item_data.items() if k != "enqueued_at"})
+            
+            logger.info(f"Processing queue item for feed {request.feed_id}")
+            
+            # Process the review
+            try:
+                # Get database session
+                db = next(get_db())
+                
+                # Find the article by feed_id
+                article = db.query(Article).filter(Article.feed_id == request.feed_id).first()
+                if not article:
+                    logger.error(f"Article not found for feed_id: {request.feed_id}")
+                    continue
+                
+                # Process the review
+                result = article_reviewer.review_article(article)
+                db.close()
+                
+                logger.info(f"Successfully processed queue item for feed {request.feed_id}")
+                
+            except Exception as e:
+                logger.error(f"Error processing queue item for feed {request.feed_id}: {e}")
+                # Re-queue the item for retry (with backoff)
+                try:
+                    r.lpush(article_reviewer.queue_key, raw_item[1])
+                    logger.info(f"Re-queued failed item for feed {request.feed_id}")
+                except Exception as requeue_error:
+                    logger.error(f"Failed to re-queue item: {requeue_error}")
+                    
+        except Exception as e:
+            logger.error(f"Queue worker error: {e}")
+            time.sleep(5)  # Wait before retrying
+    
+    logger.info("Queue worker stopped")
+
+def start_queue_worker():
+    """Start the background queue worker."""
+    global queue_worker_running, queue_worker_thread
+    
+    if queue_worker_running:
+        logger.warning("Queue worker is already running")
+        return
+        
+    queue_worker_running = True
+    queue_worker_thread = threading.Thread(target=queue_worker, daemon=True)
+    queue_worker_thread.start()
+    logger.info("Queue worker thread started")
+
+def stop_queue_worker():
+    """Stop the background queue worker."""
+    global queue_worker_running, queue_worker_thread
+    
+    if not queue_worker_running:
+        logger.warning("Queue worker is not running")
+        return
+        
+    queue_worker_running = False
+    if queue_worker_thread:
+        queue_worker_thread.join(timeout=10)
+    logger.info("Queue worker stopped")
+
 # Create tables on startup
 @app.on_event("startup")
 async def startup_event():
     create_tables()
+    start_queue_worker()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    stop_queue_worker()
     logger.info("Reviewer Service started")
 
 
@@ -767,6 +859,87 @@ async def process_queue_item():
     except Exception as e:
         logger.error(f"Error processing queue item: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process queue item: {str(e)}")
+
+@app.post("/queue/process-batch")
+async def process_queue_batch(batch_size: int = 10):
+    """Process multiple items from the queue in a batch."""
+    try:
+        r = article_reviewer.redis
+        processed_items = []
+        
+        for _ in range(batch_size):
+            # Get one item from the queue
+            raw_item = r.rpop(article_reviewer.queue_key)
+            
+            if raw_item is None:
+                break  # No more items in queue
+                
+            # Parse the queue item
+            item_data = json.loads(raw_item)
+            request = FeedReviewRequest(**{k: v for k, v in item_data.items() if k != "enqueued_at"})
+            
+            try:
+                # Process the review
+                result = await review_feed(request)
+                
+                processed_items.append({
+                    "feed_id": request.feed_id,
+                    "status": "processed",
+                    "result": result,
+                    "processing_time": datetime.utcnow().isoformat(),
+                    "enqueued_at": item_data.get("enqueued_at")
+                })
+                
+            except Exception as e:
+                logger.error(f"Error processing queue item for feed {request.feed_id}: {e}")
+                # Re-queue the failed item
+                r.lpush(article_reviewer.queue_key, raw_item)
+                processed_items.append({
+                    "feed_id": request.feed_id,
+                    "status": "failed",
+                    "error": str(e),
+                    "processing_time": datetime.utcnow().isoformat(),
+                    "enqueued_at": item_data.get("enqueued_at")
+                })
+        
+        return {
+            "status": "completed",
+            "processed_count": len(processed_items),
+            "items": processed_items
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing queue batch: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process queue batch: {str(e)}")
+
+@app.post("/queue/worker/start")
+async def start_worker():
+    """Start the background queue worker."""
+    try:
+        start_queue_worker()
+        return {"status": "started", "message": "Queue worker started"}
+    except Exception as e:
+        logger.error(f"Error starting queue worker: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start queue worker: {str(e)}")
+
+@app.post("/queue/worker/stop")
+async def stop_worker():
+    """Stop the background queue worker."""
+    try:
+        stop_queue_worker()
+        return {"status": "stopped", "message": "Queue worker stopped"}
+    except Exception as e:
+        logger.error(f"Error stopping queue worker: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to stop queue worker: {str(e)}")
+
+@app.get("/queue/worker/status")
+async def get_worker_status():
+    """Get the current status of the queue worker."""
+    return {
+        "status": "running" if queue_worker_running else "stopped",
+        "worker_running": queue_worker_running,
+        "thread_alive": queue_worker_thread.is_alive() if queue_worker_thread else False
+    }
 
 
 @app.post("/test-review")
