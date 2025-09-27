@@ -32,7 +32,7 @@
         <!-- Main Content -->
         <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
             <!-- Stats Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                 <div class="bg-white overflow-hidden shadow rounded-lg">
                     <div class="p-5">
                         <div class="flex items-center">
@@ -43,6 +43,22 @@
                                 <dl>
                                     <dt class="text-sm font-medium text-gray-500 truncate">Total Podcast Groups</dt>
                                     <dd class="text-lg font-medium text-gray-900">{{ total_groups }}</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-robot text-2xl text-purple-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">AI Presenters</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="ai-presenters-count">0</dd>
                                 </dl>
                             </div>
                         </div>
@@ -69,7 +85,7 @@
                     <div class="p-5">
                         <div class="flex items-center">
                             <div class="flex-shrink-0">
-                                <i class="bi bi-headphones text-2xl text-purple-600"></i>
+                                <i class="bi bi-headphones text-2xl text-orange-600"></i>
                             </div>
                             <div class="ml-5 w-0 flex-1">
                                 <dl>
@@ -209,14 +225,17 @@
             <!-- Quick Actions -->
             <div class="mt-8 bg-white shadow rounded-lg p-6">
                 <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                     <button onclick="createNewGroup()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                         <i class="bi bi-plus-circle mr-2"></i>New Podcast Group
+                    </button>
+                    <button onclick="generateAIPersonas()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-robot mr-2"></i>Generate AI Personas
                     </button>
                     <button onclick="viewAllEpisodes()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
                         <i class="bi bi-list-ul mr-2"></i>View Episodes
                     </button>
-                    <button onclick="systemStats()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                    <button onclick="systemStats()" class="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded">
                         <i class="bi bi-graph-up mr-2"></i>System Stats
                     </button>
                     <button onclick="healthCheck()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
@@ -248,9 +267,44 @@
             }
         }
 
+        async function loadAIPresentersCount() {
+            try {
+                const response = await fetch('/api/presenters');
+                const presenters = await response.json();
+                const aiPresenters = presenters.filter(p => 
+                    p.system_prompt && p.system_prompt.includes('You are') && p.persona && p.persona.length > 100
+                ).length;
+                document.getElementById('ai-presenters-count').textContent = aiPresenters;
+            } catch (error) {
+                console.error('Error loading AI presenters count:', error);
+            }
+        }
+
         function createNewGroup() {
             // Redirect to a form or modal for creating new podcast group
             alert('Create New Group functionality - to be implemented');
+        }
+
+        async function generateAIPersonas() {
+            if (confirm('Generate AI personas for all categories? This will create presenters for Technology, News, Finance, and General categories.')) {
+                try {
+                    const response = await fetch('/api/auto-create-groups', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(await response.text());
+                    }
+                    
+                    const result = await response.json();
+                    alert(`Success! ${result.message}`);
+                    await loadAIPresentersCount();
+                } catch (error) {
+                    console.error('Error generating AI personas:', error);
+                    alert('Error generating AI personas: ' + error.message);
+                }
+            }
         }
 
         function viewAllEpisodes() {
@@ -279,8 +333,11 @@
                 });
         }
 
-        // Load cadence on page load
-        document.addEventListener('DOMContentLoaded', loadCadence);
+        // Load cadence and AI presenters count on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCadence();
+            loadAIPresentersCount();
+        });
     </script>
 </body>
 </html>
