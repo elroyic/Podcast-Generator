@@ -24,27 +24,27 @@ setup:
 # Build Docker images
 build:
 	@echo "🔨 Building Docker images..."
-	docker-compose build
+	docker compose build
 
 # Start all services
 up:
 	@echo "🚀 Starting Podcast AI services..."
-	docker-compose up -d
+	docker compose up -d
 
 # Stop all services
 down:
 	@echo "🛑 Stopping Podcast AI services..."
-	docker-compose down
+	docker compose down
 
 # View logs
 logs:
 	@echo "📋 Viewing logs..."
-	docker-compose logs -f
+	docker compose logs -f
 
 # Clean up everything
 clean:
 	@echo "🧹 Cleaning up..."
-	docker-compose down -v --remove-orphans
+	docker compose down -v --remove-orphans
 	docker system prune -f
 	docker volume prune -f
 
@@ -67,17 +67,17 @@ health:
 # Development mode
 dev:
 	@echo "🔧 Starting in development mode..."
-	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+	docker compose -f docker-compose.yml -f docker-compose.override.yml up
 
 # Open shell in API Gateway
 shell:
 	@echo "🐚 Opening shell in API Gateway container..."
-	docker-compose exec api-gateway bash
+	docker compose exec api-gateway sh
 
 # Database operations
 db-migrate:
 	@echo "🗄️  Running database migrations..."
-	docker-compose exec api-gateway python -c "from shared.database import create_tables; create_tables()"
+	docker compose exec api-gateway python -c "from shared.database import create_tables; create_tables()"
 
 # Create sample data
 sample-data:
@@ -106,4 +106,4 @@ restart: down up
 # Show service status
 status:
 	@echo "📊 Service status:"
-	@docker-compose ps
+	@docker compose ps

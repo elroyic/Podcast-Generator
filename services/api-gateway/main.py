@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from shared.database import get_db, create_tables
 from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed
@@ -49,11 +50,13 @@ PUBLIC_MEDIA_BASE_URL = os.getenv("PUBLIC_MEDIA_BASE_URL", "http://localhost:809
 # Service URLs
 SERVICE_URLS = {
     "news-feed": "http://news-feed:8001",
-    "text-generation": "http://text-generation:8002", 
+    "text-generation": "http://text-generation:8002",
     "writer": "http://writer:8003",
     "presenter": "http://presenter:8004",
+    # Internal-only services (no host port mapping needed)
     "publishing": "http://publishing:8005",
-    "ai-overseer": "http://ai-overseer:8006",
+    # Correct port for enhanced overseer service
+    "ai-overseer": "http://ai-overseer:8012",
     "reviewer": "http://reviewer:8008",
 }
 
@@ -103,7 +106,8 @@ async def health_check():
     # Check database
     try:
         db = next(get_db())
-        db.execute("SELECT 1")
+        # SQLAlchemy 2.x requires using text() for textual SQL
+        db.execute(text("SELECT 1"))
         services_status["database"] = "healthy"
     except Exception as e:
         services_status["database"] = f"error: {str(e)}"

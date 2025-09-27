@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
-from shared.models import Article, NewsFeed, PodcastGroup, Collection
+from shared.models import Article, NewsFeed, PodcastGroup, Collection as DBCollection
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +37,7 @@ class CollectionItem(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-class Collection(BaseModel):
+class CollectionDTO(BaseModel):
     """A collection of related content."""
     collection_id: str
     group_id: str
@@ -64,7 +64,7 @@ class CollectionUpdate(BaseModel):
 
 class CollectionResponse(BaseModel):
     """Response for collection operations."""
-    collection: Collection
+    collection: CollectionDTO
     message: str
 
 
@@ -73,11 +73,13 @@ class CollectionsManager:
     
     def __init__(self):
         self.reviewer_client = httpx.AsyncClient(timeout=30.0)
+        # In-memory store for active collections
+        self.collections: Dict[str, CollectionDTO] = {}
     
-    async def create_collection(self, request: CollectionCreate, db: Session) -> Collection:
+    async def create_collection(self, request: CollectionCreate, db: Session) -> CollectionDTO:
         """Create a new collection for a podcast group."""
         # Create collection in database
-        db_collection = Collection(
+        db_collection = DBCollection(
             group_id=UUID(request.group_id),
             status="building"
         )
@@ -86,7 +88,10 @@ class CollectionsManager:
         db.refresh(db_collection)
         
         # Create Pydantic model for response
-        collection = Collection(
+        now = datetime.utcnow()
+        created_at = db_collection.created_at or now
+        updated_at = db_collection.updated_at or created_at
+        collection = CollectionDTO(
             collection_id=str(db_collection.id),
             group_id=str(db_collection.group_id),
             status=db_collection.status,
@@ -96,10 +101,12 @@ class CollectionsManager:
                 "max_items": request.max_items,
                 "min_feeds_required": MIN_FEEDS_PER_COLLECTION
             },
-            created_at=db_collection.created_at,
-            updated_at=db_collection.updated_at,
-            expires_at=None
+            created_at=created_at,
+            updated_at=updated_at,
+            expires_at=now + timedelta(hours=COLLECTION_TTL_HOURS)
         )
+        # Store in-memory representation
+        self.collections[collection.collection_id] = collection
         
         logger.info(f"Created collection {collection.collection_id} for group {request.group_id}")
         
@@ -193,11 +200,11 @@ class CollectionsManager:
         except Exception as e:
             logger.error(f"Failed to auto-review feed: {e}")
     
-    def get_collection(self, collection_id: str) -> Optional[Collection]:
+    def get_collection(self, collection_id: str) -> Optional[CollectionDTO]:
         """Get a collection by ID."""
         return self.collections.get(collection_id)
     
-    def get_ready_collections(self, group_id: Optional[str] = None) -> List[Collection]:
+    def get_ready_collections(self, group_id: Optional[str] = None) -> List[CollectionDTO]:
         """Get collections that are ready for podcast generation."""
         ready_collections = []
         
@@ -255,7 +262,7 @@ class CollectionsManager:
             del self.collections[collection_id]
             logger.info(f"Cleaned up expired collection {collection_id}")
     
-    def get_collections_for_group(self, group_id: str) -> List[Collection]:
+    def get_collections_for_group(self, group_id: str) -> List[CollectionDTO]:
         """Get all collections for a specific group."""
         return [c for c in self.collections.values() if c.group_id == group_id]
 
@@ -293,7 +300,7 @@ async def create_collection(request: CollectionCreate, db: Session = Depends(get
     )
 
 
-@app.get("/collections/{collection_id}", response_model=Collection)
+@app.get("/collections/{collection_id}", response_model=CollectionDTO)
 async def get_collection(collection_id: str):
     """Get a specific collection."""
     collection = collections_manager.get_collection(collection_id)
@@ -303,7 +310,7 @@ async def get_collection(collection_id: str):
     return collection
 
 
-@app.get("/collections", response_model=List[Collection])
+@app.get("/collections", response_model=List[CollectionDTO])
 async def list_collections(
     group_id: Optional[str] = None,
     status: Optional[str] = None,
@@ -324,7 +331,7 @@ async def list_collections(
     return collections[:limit]
 
 
-@app.get("/collections/ready", response_model=List[Collection])
+@app.get("/collections/ready", response_model=List[CollectionDTO])
 async def get_ready_collections(group_id: Optional[str] = None):
     """Get collections that are ready for podcast generation."""
     return collections_manager.get_ready_collections(group_id)
@@ -407,7 +414,7 @@ async def cleanup_expired_collections(background_tasks: BackgroundTasks):
     return {"message": "Cleanup task queued"}
 
 
-@app.get("/collections/group/{group_id}", response_model=List[Collection])
+@app.get("/collections/group/{group_id}", response_model=List[CollectionDTO])
 async def get_collections_for_group(group_id: str):
     """Get all collections for a specific group."""
     return collections_manager.get_collections_for_group(group_id)

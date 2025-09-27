@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   news-feed:
     ports:
@@ -7,8 +5,8 @@ services:
 
   reviewer:
     build:
-      context: .
-      dockerfile: services/reviewer/Dockerfile
+      context: ./services/reviewer
+      dockerfile: Dockerfile
     ports:
       - 8013:8008
     environment:
@@ -28,8 +26,8 @@ services:
 
   editor:
     build:
-      context: .
-      dockerfile: services/editor/Dockerfile
+      context: ./services/editor
+      dockerfile: Dockerfile
     ports:
       - 8009:8009
     environment:
@@ -48,8 +46,8 @@ services:
 
   collections:
     build:
-      context: .
-      dockerfile: services/collections/Dockerfile
+      context: ./services/collections
+      dockerfile: Dockerfile
     ports:
       - 8014:8011
     depends_on:

@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY main.py .
 
+# Copy shared directory from parent context
+# We'll handle this via docker-compose volumes instead
+
 # Expose port
 EXPOSE 8011
 
