@@ -1,0 +1,78 @@
+name: Security Policy Enforcement
+
+on:
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  security-audit:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety bandit semgrep
+        
+    - name: Run Safety check (Python dependencies)
+      run: |
+        # Check all requirements.txt files for known vulnerabilities
+        find . -name "requirements.txt" -exec safety check -r {} \;
+        
+    - name: Run Bandit security linter
+      run: |
+        # Scan Python code for security issues
+        bandit -r services/ shared/ -f json -o bandit-report.json || true
+        
+    - name: Run Semgrep security analysis
+      run: |
+        # Static analysis for security patterns
+        semgrep --config=auto services/ shared/ --json --output=semgrep-report.json || true
+        
+    - name: Upload security reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          semgrep-report.json
+          
+    - name: Docker image vulnerability scan
+      run: |
+        # Build and scan all service images
+        for service in api-gateway ai-overseer reviewer writer presenter publishing; do
+          echo "🔍 Scanning $service..."
+          docker build -t test-scan:$service ./services/$service/
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $PWD:/workspace aquasec/trivy:latest image \
+            --exit-code 1 --severity CRITICAL,HIGH \
+            --format json --output /workspace/trivy-$service.json \
+            test-scan:$service || echo "⚠️ Vulnerabilities found in $service"
+        done
+        
+    - name: Upload vulnerability reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: vulnerability-scans
+        path: trivy-*.json
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v4
+      with:
+        fail-on-severity: high
+        allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC

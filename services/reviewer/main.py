@@ -2,6 +2,7 @@
 Reviewer Service – Two-tier Light/Heavy orchestration with Redis-backed config and metrics.
 Backwards-compatible with existing /review-article endpoint; now persists review fields on Article.
 """
+import json
 import logging
 import os
 from datetime import datetime
@@ -670,6 +671,102 @@ async def get_unreviewed_articles(
         }
         for article in articles
     ]
+
+
+@app.post("/enqueue")
+async def enqueue_review(request: FeedReviewRequest):
+    """Enqueue a feed review request for background processing."""
+    try:
+        # Add the request to the Redis queue
+        r = article_reviewer.redis
+        request_data = request.dict()
+        request_data["enqueued_at"] = datetime.utcnow().isoformat()
+        
+        # Push to the queue
+        r.lpush(article_reviewer.queue_key, json.dumps(request_data))
+        
+        # Get current queue length
+        queue_length = r.llen(article_reviewer.queue_key)
+        
+        logger.info(f"Enqueued review request for feed {request.feed_id}, queue length: {queue_length}")
+        
+        return {
+            "status": "enqueued",
+            "feed_id": request.feed_id,
+            "queue_position": queue_length,
+            "estimated_wait_minutes": queue_length * 0.5,  # Assume 30 seconds per review
+            "enqueued_at": request_data["enqueued_at"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error enqueuing review: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to enqueue review: {str(e)}")
+
+
+@app.get("/queue/status")
+async def get_queue_status():
+    """Get current queue status."""
+    try:
+        r = article_reviewer.redis
+        queue_length = r.llen(article_reviewer.queue_key)
+        
+        # Get some queue items for preview (without removing them)
+        preview_items = []
+        if queue_length > 0:
+            # Get last 5 items from the queue (most recent)
+            raw_items = r.lrange(article_reviewer.queue_key, 0, 4)
+            for item in raw_items:
+                try:
+                    item_data = json.loads(item)
+                    preview_items.append({
+                        "feed_id": item_data.get("feed_id"),
+                        "title": item_data.get("title", "")[:50] + "..." if len(item_data.get("title", "")) > 50 else item_data.get("title", ""),
+                        "enqueued_at": item_data.get("enqueued_at")
+                    })
+                except Exception:
+                    continue
+        
+        return {
+            "queue_length": queue_length,
+            "estimated_processing_time_minutes": queue_length * 0.5,
+            "preview_items": preview_items,
+            "status": "active" if queue_length > 0 else "empty"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting queue status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}")
+
+
+@app.post("/queue/process")
+async def process_queue_item():
+    """Process one item from the queue (for manual testing)."""
+    try:
+        r = article_reviewer.redis
+        
+        # Get one item from the queue
+        raw_item = r.rpop(article_reviewer.queue_key)
+        if not raw_item:
+            return {"status": "empty", "message": "No items in queue"}
+        
+        # Parse the queue item
+        item_data = json.loads(raw_item)
+        request = FeedReviewRequest(**{k: v for k, v in item_data.items() if k != "enqueued_at"})
+        
+        # Process the review
+        result = await review_feed(request)
+        
+        return {
+            "status": "processed",
+            "feed_id": request.feed_id,
+            "result": result,
+            "processing_time": datetime.utcnow().isoformat(),
+            "enqueued_at": item_data.get("enqueued_at")
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing queue item: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process queue item: {str(e)}")
 
 
 @app.post("/test-review")

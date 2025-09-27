@@ -802,9 +802,135 @@ async def get_reviewer_metrics():
 
 @app.post("/api/reviewer/scale/light")
 async def scale_light_reviewer(workers: int = Body(embed=True, default=1)):
-    # Store desired count in reviewer config; external process handles applying scale
+    """Scale light reviewer workers and apply Docker scaling."""
+    # Store desired count in reviewer config
     await call_service("reviewer", "PUT", "/config", json={"light_workers": workers})
-    return {"status": "ok", "workers": workers}
+    
+    # Apply actual Docker scaling
+    try:
+        scaling_result = await apply_container_scaling("light-reviewer", workers)
+        return {
+            "status": "ok", 
+            "workers": workers,
+            "scaling_applied": scaling_result["success"],
+            "message": scaling_result["message"]
+        }
+    except Exception as e:
+        logger.warning(f"Config updated but scaling failed: {e}")
+        return {
+            "status": "partial", 
+            "workers": workers,
+            "scaling_applied": False,
+            "message": f"Config updated but scaling failed: {str(e)}"
+        }
+
+
+async def apply_container_scaling(service_name: str, replica_count: int) -> Dict[str, Any]:
+    """Apply Docker container scaling using docker-compose."""
+    try:
+        import subprocess
+        import asyncio
+        
+        # Use docker-compose to scale the service
+        cmd = ["docker", "compose", "up", "-d", "--scale", f"{service_name}={replica_count}", service_name]
+        
+        # Run the scaling command
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd="/workspace"  # Assuming docker-compose.yml is in workspace root
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            logger.info(f"✅ Successfully scaled {service_name} to {replica_count} replicas")
+            return {
+                "success": True,
+                "message": f"Scaled {service_name} to {replica_count} replicas",
+                "output": stdout.decode() if stdout else ""
+            }
+        else:
+            error_msg = stderr.decode() if stderr else f"Process returned code {process.returncode}"
+            logger.error(f"❌ Failed to scale {service_name}: {error_msg}")
+            return {
+                "success": False,
+                "message": f"Scaling failed: {error_msg}",
+                "output": stdout.decode() if stdout else ""
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Error during container scaling: {e}")
+        return {
+            "success": False,
+            "message": f"Scaling error: {str(e)}",
+            "output": ""
+        }
+
+
+@app.get("/api/reviewer/scale/status")
+async def get_scaling_status():
+    """Get current scaling status of reviewer services."""
+    try:
+        import subprocess
+        import asyncio
+        
+        # Get current container status
+        cmd = ["docker", "compose", "ps", "--format", "json"]
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd="/workspace"
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            import json
+            containers = []
+            output = stdout.decode().strip()
+            
+            # Parse JSON output (each line is a JSON object)
+            for line in output.split('\n'):
+                if line.strip():
+                    try:
+                        container = json.loads(line)
+                        if 'reviewer' in container.get('Service', ''):
+                            containers.append({
+                                "service": container.get('Service'),
+                                "state": container.get('State'),
+                                "status": container.get('Status'),
+                                "name": container.get('Name')
+                            })
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Get config from reviewer service
+            reviewer_config = await call_service("reviewer", "GET", "/config")
+            
+            return {
+                "status": "success",
+                "containers": containers,
+                "configured_light_workers": reviewer_config.get("light_workers", 1),
+                "actual_light_containers": len([c for c in containers if 'light-reviewer' in c['service']]),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Failed to get container status",
+                "error": stderr.decode() if stderr else "Unknown error"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting scaling status: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to get scaling status: {str(e)}"
+        }
 
 
 @app.get("/api/cadence/status")

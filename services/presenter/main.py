@@ -1,6 +1,6 @@
 """
-Enhanced Presenter Service - Generates actual MP3 audio files.
-This version creates real MP3 audio files using pydub and numpy.
+VibeVoice-Enhanced Presenter Service - Generates high-quality MP3 audio files using VibeVoice.
+Falls back to synthetic audio when VibeVoice is unavailable.
 """
 
 import logging
@@ -11,6 +11,8 @@ from typing import Dict, Any, Optional, List
 from uuid import UUID
 
 import numpy as np
+import torch
+import soundfile as sf
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pydub import AudioSegment
@@ -43,6 +45,164 @@ class AudioGenerationResponse(BaseModel):
     file_size_bytes: int
     format: str
     generation_metadata: Dict[str, Any]
+
+
+class VibeVoiceTTS:
+    """VibeVoice Text-to-Speech implementation with fallback."""
+    
+    def __init__(self):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = None
+        self.processor = None
+        self.is_loaded = False
+        self.use_vibevoice = os.getenv("USE_VIBEVOICE", "true").lower() == "true"
+        
+        if self.use_vibevoice:
+            self._load_model()
+    
+    def _load_model(self):
+        """Load the VibeVoice model if available."""
+        try:
+            logger.info(f"Loading VibeVoice model on {self.device}")
+            
+            # Try to import VibeVoice - this may fail if not installed
+            try:
+                from transformers import AutoModel, AutoProcessor
+                logger.info("Loading VibeVoice model from HuggingFace...")
+                
+                # Load VibeVoice model
+                self.model = AutoModel.from_pretrained("microsoft/VibeVoice-1.5B", trust_remote_code=True)
+                self.processor = AutoProcessor.from_pretrained("microsoft/VibeVoice-1.5B", trust_remote_code=True)
+                
+                self.model = self.model.to(self.device)
+                self.is_loaded = True
+                logger.info("✅ VibeVoice model loaded successfully!")
+                
+            except Exception as hf_error:
+                logger.warning(f"HuggingFace VibeVoice failed: {hf_error}")
+                # Try local vibevoice package
+                from vibevoice.modular.modeling_vibevoice_inference import VibeVoiceForConditionalGenerationInference
+                from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
+                
+                self.model = VibeVoiceForConditionalGenerationInference.from_pretrained("vibevoice/VibeVoice-1.5B")
+                self.processor = VibeVoiceProcessor.from_pretrained("vibevoice/VibeVoice-1.5B")
+                
+                self.model = self.model.to(self.device)
+                self.is_loaded = True
+                logger.info("✅ Local VibeVoice model loaded successfully!")
+            
+        except ImportError as e:
+            logger.warning(f"VibeVoice not available: {e}")
+            logger.warning("Falling back to synthetic audio generation")
+            self.is_loaded = False
+        except Exception as e:
+            logger.warning(f"Failed to load VibeVoice model: {e}")
+            logger.warning("Falling back to synthetic audio generation")
+            self.is_loaded = False
+    
+    def generate_speech(self, text: str, voice_id: str = "default") -> np.ndarray:
+        """Generate speech from text using VibeVoice or fallback."""
+        if self.is_loaded and self.use_vibevoice:
+            return self._generate_vibevoice_speech(text, voice_id)
+        else:
+            return self._generate_synthetic_speech(text)
+    
+    def _generate_vibevoice_speech(self, text: str, voice_id: str) -> np.ndarray:
+        """Generate speech using VibeVoice model."""
+        try:
+            logger.info(f"Generating speech with VibeVoice for voice: {voice_id}")
+            logger.info(f"Text length: {len(text)} characters")
+            
+            # Process text chunks to avoid memory issues
+            max_chunk_length = 500
+            if len(text) > max_chunk_length:
+                chunks = [text[i:i+max_chunk_length] for i in range(0, len(text), max_chunk_length)]
+            else:
+                chunks = [text]
+            
+            audio_chunks = []
+            
+            for i, chunk in enumerate(chunks):
+                logger.info(f"Processing chunk {i+1}/{len(chunks)}")
+                
+                # Prepare inputs
+                inputs = self.processor(chunk, return_tensors="pt", padding=True, truncation=True)
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                
+                # Generate audio
+                with torch.no_grad():
+                    audio_outputs = self.model.generate(**inputs)
+                
+                # Convert to numpy array
+                if hasattr(audio_outputs, 'cpu'):
+                    audio_array = audio_outputs.cpu().numpy()
+                else:
+                    audio_array = audio_outputs
+                
+                if audio_array.ndim > 1:
+                    audio_array = audio_array.flatten()
+                
+                audio_chunks.append(audio_array)
+            
+            # Concatenate all chunks
+            full_audio = np.concatenate(audio_chunks)
+            
+            # Ensure it's stereo
+            if full_audio.ndim == 1:
+                # Convert to stereo by duplicating mono channel
+                full_audio = np.stack([full_audio, full_audio], axis=-1)
+            
+            logger.info(f"✅ Generated VibeVoice audio: {full_audio.shape}")
+            return full_audio
+            
+        except Exception as e:
+            logger.error(f"VibeVoice generation failed: {e}")
+            logger.info("Falling back to synthetic audio")
+            return self._generate_synthetic_speech(text)
+    
+    def _generate_synthetic_speech(self, text: str) -> np.ndarray:
+        """Generate synthetic speech as fallback."""
+        logger.info("Generating synthetic speech (fallback)")
+        
+        # Calculate duration based on text length (rough estimate: 150 words per minute)
+        words = len(text.split())
+        duration_minutes = max(1, words / 150)  # Minimum 1 minute
+        duration_seconds = int(duration_minutes * 60)
+        
+        # Create synthetic audio using sine waves and white noise
+        sample_rate = SAMPLE_RATE
+        total_samples = int(duration_seconds * sample_rate)
+        
+        # Generate base tone (simulating voice)
+        t = np.linspace(0, duration_seconds, total_samples, False)
+        base_freq = 200 + np.sin(t * 0.5) * 50  # Varying frequency for more natural sound
+        audio = np.sin(2 * np.pi * base_freq * t)
+        
+        # Add harmonics for richer sound
+        audio += 0.3 * np.sin(2 * np.pi * base_freq * 2 * t)
+        audio += 0.2 * np.sin(2 * np.pi * base_freq * 3 * t)
+        
+        # Add some white noise for texture
+        noise = np.random.normal(0, 0.05, total_samples)
+        audio += noise
+        
+        # Apply amplitude modulation to simulate speech patterns
+        words_per_second = words / duration_seconds
+        modulation_freq = words_per_second / 3  # Rough speech rhythm
+        modulation = 0.5 + 0.5 * np.sin(2 * np.pi * modulation_freq * t)
+        audio *= modulation
+        
+        # Normalize
+        audio = audio / np.max(np.abs(audio)) * 0.8
+        
+        # Convert to stereo
+        stereo_audio = np.stack([audio, audio], axis=-1)
+        
+        return stereo_audio
+
+
+# Global TTS instance
+vibevoice_tts = VibeVoiceTTS()
 
 
 def text_to_speech_audio(script: str, duration_seconds: int = 30) -> AudioSegment:
@@ -107,7 +267,7 @@ def text_to_speech_audio(script: str, duration_seconds: int = 30) -> AudioSegmen
 
 
 def create_mp3_audio_file(episode_id: UUID, script: str) -> str:
-    """Create an actual MP3 audio file from script."""
+    """Create an actual MP3 audio file from script using VibeVoice."""
     
     # Ensure storage directory exists: /app/storage/episodes/{episode_id}
     episode_dir = os.path.join(AUDIO_STORAGE_PATH, "episodes", str(episode_id))
@@ -119,23 +279,59 @@ def create_mp3_audio_file(episode_id: UUID, script: str) -> str:
     
     logger.info(f"Generating {target_duration}-second audio for episode {episode_id}")
     
-    # Generate synthetic speech audio
-    audio_segment = text_to_speech_audio(script, target_duration)
-    
-    # Create MP3 filename under the episode directory expected by nginx
-    mp3_path = os.path.join(episode_dir, "audio.mp3")
-    
-    # Ensure stereo before export and export as stereo MP3
-    audio_segment = audio_segment.set_channels(2)
-    audio_segment.export(
-        mp3_path,
-        format="mp3",
-        bitrate=f"{BIT_RATE}k",
-        parameters=["-ac", "2"]  # Stereo audio
-    )
-    
-    logger.info(f"Created MP3 file: {mp3_path}")
-    return mp3_path
+    try:
+        # Generate audio using VibeVoice
+        logger.info("🎤 Generating audio with VibeVoice TTS")
+        audio_array = vibevoice_tts.generate_speech(script)
+        
+        # Create temporary WAV file
+        temp_wav = os.path.join(episode_dir, "temp_audio.wav")
+        
+        # Save as WAV first (VibeVoice generates numpy array)
+        if audio_array.ndim == 1:
+            # Convert mono to stereo
+            audio_array = np.stack([audio_array, audio_array], axis=-1)
+        
+        sf.write(temp_wav, audio_array, SAMPLE_RATE)
+        
+        # Convert WAV to MP3 using pydub
+        audio_segment = AudioSegment.from_wav(temp_wav)
+        mp3_path = os.path.join(episode_dir, "audio.mp3")
+        
+        # Ensure stereo and export as MP3
+        audio_segment = audio_segment.set_channels(2)
+        audio_segment.export(
+            mp3_path,
+            format="mp3",
+            bitrate=f"{BIT_RATE}k",
+            parameters=["-ac", "2"]  # Stereo audio
+        )
+        
+        # Clean up temporary WAV
+        os.remove(temp_wav)
+        
+        logger.info(f"✅ Created VibeVoice MP3 file: {mp3_path}")
+        return mp3_path
+        
+    except Exception as e:
+        logger.error(f"❌ VibeVoice generation failed: {e}")
+        logger.info("🔄 Falling back to synthetic audio generation")
+        
+        # Fallback to original synthetic method
+        audio_segment = text_to_speech_audio(script, target_duration)
+        mp3_path = os.path.join(episode_dir, "audio.mp3")
+        
+        # Ensure stereo and export as MP3
+        audio_segment = audio_segment.set_channels(2)
+        audio_segment.export(
+            mp3_path,
+            format="mp3",
+            bitrate=f"{BIT_RATE}k",
+            parameters=["-ac", "2"]  # Stereo audio
+        )
+        
+        logger.info(f"Created fallback MP3 file: {mp3_path}")
+        return mp3_path
 
 
 @app.get("/health")
