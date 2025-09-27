@@ -6,6 +6,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from uuid import UUID
+import json
+import hashlib
 
 import httpx
 import redis
@@ -17,7 +19,7 @@ import os
 sys.path.append('/app/shared')
 
 from database import get_db_session
-from models import PodcastGroup, Article, Episode, EpisodeStatus, EpisodeMetadata, AudioFile
+from models import PodcastGroup, Article, Episode, EpisodeStatus, EpisodeMetadata, AudioFile, Presenter, NewsFeed
 
 logger = logging.getLogger(__name__)
 
@@ -364,6 +366,205 @@ class PublishingService(ServiceClient):
             raise
 
 
+class PersonaGenerationService:
+    """Service for generating presenter personas using LLM."""
+    
+    def __init__(self):
+        self.text_generation_service = TextGenerationService()
+    
+    def _create_persona_system_prompt(self) -> str:
+        """Create system prompt for persona generation."""
+        return """
+You are an expert at creating engaging podcast presenter personas. Generate unique, memorable, and authentic presenter characters that would be perfect for podcast hosting.
+
+For each persona, create:
+1. A distinctive name that fits the character
+2. A compelling bio that shows personality and expertise
+3. A detailed persona description with speaking style, interests, and quirks
+4. Voice characteristics and speaking patterns
+5. A system prompt that defines how this presenter should behave
+
+Make each persona:
+- Unique and memorable
+- Authentic and relatable
+- Professional yet personable
+- Suited for podcast hosting
+- Distinctive in voice and style
+- Engaging and entertaining
+
+Return your response as valid JSON with the following structure:
+{
+    "name": "Presenter Name",
+    "bio": "Brief bio describing the presenter",
+    "persona": "Detailed persona description including speaking style, interests, personality traits",
+    "voice_style": "Description of voice characteristics and speaking patterns",
+    "system_prompt": "System prompt that defines how this presenter should behave when reviewing content and providing feedback"
+}
+"""
+    
+    def _create_persona_content_prompt(self, group_category: str, recent_articles: List[str]) -> str:
+        """Create content prompt for persona generation based on group context."""
+        articles_context = ""
+        if recent_articles:
+            articles_context = f"""
+Recent article topics to consider for expertise areas:
+{chr(10).join([f"- {article[:100]}..." for article in recent_articles[:5]])}
+"""
+        
+        return f"""
+Create a unique podcast presenter persona for a {group_category} podcast.
+
+{articles_context}
+
+Requirements:
+- The persona should be well-suited for {group_category} content
+- Make them knowledgeable but approachable
+- Give them a distinctive personality and speaking style
+- Include specific expertise areas relevant to {group_category}
+- Make them engaging and entertaining
+- Ensure they would be good at reviewing and discussing content
+
+Generate a complete persona that would be perfect for hosting a {group_category} podcast.
+"""
+    
+    async def generate_presenter_persona(
+        self,
+        group_id: UUID,
+        group_category: str = "General",
+        recent_articles: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Generate a presenter persona using LLM."""
+        try:
+            logger.info(f"Generating presenter persona for {group_category} group {group_id}")
+            
+            # Get recent article titles for context
+            if not recent_articles:
+                db = get_db_session()
+                try:
+                    group = db.query(PodcastGroup).filter(PodcastGroup.id == group_id).first()
+                    if group and group.news_feeds:
+                        feed_ids = [feed.id for feed in group.news_feeds]
+                        articles = db.query(Article).filter(
+                            Article.feed_id.in_(feed_ids)
+                        ).order_by(Article.created_at.desc()).limit(10).all()
+                        recent_articles = [article.title for article in articles]
+                finally:
+                    db.close()
+            
+            # Create prompts
+            system_prompt = self._create_persona_system_prompt()
+            content_prompt = self._create_persona_content_prompt(group_category, recent_articles or [])
+            
+            # Use text generation service to create persona
+            request_data = {
+                "group_id": str(group_id),
+                "article_summaries": [{"title": title, "summary": "", "link": ""} for title in (recent_articles or [])],
+                "target_duration_minutes": 1,  # Not used for persona generation
+                "style_preferences": {
+                    "task": "persona_generation",
+                    "system_prompt": system_prompt,
+                    "content_prompt": content_prompt
+                }
+            }
+            
+            # Make a custom request to text generation service
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "http://text-generation:8002/generate-script",
+                    json=request_data
+                )
+                response.raise_for_status()
+                result = response.json()
+            
+            # Extract persona from the generated script
+            script = result.get("script", "")
+            
+            # Try to parse JSON from the script
+            try:
+                # Look for JSON in the script
+                import re
+                json_match = re.search(r'\{.*\}', script, re.DOTALL)
+                if json_match:
+                    persona_data = json.loads(json_match.group())
+                else:
+                    # Fallback: create persona from script content
+                    persona_data = self._create_fallback_persona(script, group_category)
+            except json.JSONDecodeError:
+                # Fallback: create persona from script content
+                persona_data = self._create_fallback_persona(script, group_category)
+            
+            # Validate and enhance persona data
+            persona_data = self._validate_persona_data(persona_data, group_category)
+            
+            logger.info(f"Successfully generated persona: {persona_data.get('name', 'Unknown')}")
+            return persona_data
+            
+        except Exception as e:
+            logger.error(f"Error generating presenter persona: {e}")
+            # Return a fallback persona
+            return self._create_fallback_persona("", group_category)
+    
+    def _create_fallback_persona(self, script_content: str, category: str) -> Dict[str, Any]:
+        """Create a fallback persona when LLM generation fails."""
+        category_lower = category.lower()
+        
+        # Generate deterministic persona based on category
+        seed = hashlib.md5(category.encode()).hexdigest()
+        persona_index = int(seed[:2], 16) % 4
+        
+        personas = [
+            {
+                "name": f"Alex {category} Expert",
+                "bio": f"Experienced {category_lower} analyst with a passion for breaking down complex topics into digestible insights.",
+                "persona": f"Professional yet approachable, Alex brings years of {category_lower} expertise to every discussion. Known for clear explanations and thoughtful analysis.",
+                "voice_style": "Clear, confident, and engaging with a professional tone that's accessible to all audiences.",
+                "system_prompt": f"You are Alex, a knowledgeable {category_lower} expert. Provide clear, insightful analysis while maintaining an engaging and approachable tone."
+            },
+            {
+                "name": f"Sam {category} Insider",
+                "bio": f"Industry insider with deep connections in {category_lower}, offering unique perspectives on current events.",
+                "persona": f"Sam has insider knowledge and isn't afraid to share candid insights about {category_lower} developments. Direct and honest in approach.",
+                "voice_style": "Direct, conversational, and slightly informal with occasional industry jargon explained for clarity.",
+                "system_prompt": f"You are Sam, a {category_lower} insider with deep industry knowledge. Share insights candidly while explaining complex concepts clearly."
+            },
+            {
+                "name": f"Jordan {category} Explorer",
+                "bio": f"Curious explorer of {category_lower} trends, always asking the right questions to uncover deeper stories.",
+                "persona": f"Jordan approaches {category_lower} with curiosity and skepticism, always digging deeper to understand the full picture.",
+                "voice_style": "Inquisitive, thoughtful, and analytical with a tendency to ask probing questions and explore multiple angles.",
+                "system_prompt": f"You are Jordan, a curious {category_lower} explorer. Ask thoughtful questions and explore multiple perspectives on each topic."
+            },
+            {
+                "name": f"Casey {category} Storyteller",
+                "bio": f"Master storyteller who brings {category_lower} news to life through compelling narratives and real-world connections.",
+                "persona": f"Casey excels at connecting {category_lower} developments to broader themes and human stories, making complex topics relatable.",
+                "voice_style": "Narrative-driven, engaging, and emotionally intelligent with a talent for making abstract concepts concrete.",
+                "system_prompt": f"You are Casey, a {category_lower} storyteller. Connect news to broader themes and human stories to make content engaging and relatable."
+            }
+        ]
+        
+        return personas[persona_index]
+    
+    def _validate_persona_data(self, persona_data: Dict[str, Any], category: str) -> Dict[str, Any]:
+        """Validate and enhance persona data."""
+        required_fields = ["name", "bio", "persona", "voice_style", "system_prompt"]
+        
+        for field in required_fields:
+            if field not in persona_data or not persona_data[field]:
+                if field == "name":
+                    persona_data[field] = f"AI {category} Presenter"
+                elif field == "bio":
+                    persona_data[field] = f"AI-generated presenter specializing in {category.lower()} content"
+                elif field == "persona":
+                    persona_data[field] = f"Professional {category.lower()} presenter with engaging personality"
+                elif field == "voice_style":
+                    persona_data[field] = "Clear, professional, and engaging voice suitable for podcast hosting"
+                elif field == "system_prompt":
+                    persona_data[field] = f"You are a knowledgeable {category.lower()} presenter. Provide clear, engaging commentary on the topics discussed."
+        
+        return persona_data
+
+
 class EpisodeGenerationService:
     """Orchestrates the complete episode generation process."""
     
@@ -375,6 +576,7 @@ class EpisodeGenerationService:
         self.editor_service = EditorService()
         self.presenter_service = PresenterService()
         self.publishing_service = PublishingService()
+        self.persona_generation_service = PersonaGenerationService()
         self.cadence_manager = CadenceManager()
         # Feature flag: allow switching script generation source
         self.use_writer_for_script = str(os.getenv("USE_WRITER_FOR_SCRIPT", "true")).lower() in ("1", "true", "yes")

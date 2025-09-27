@@ -15,7 +15,7 @@ import os
 sys.path.append('/app/shared')
 
 from database import get_db, create_tables
-from models import PodcastGroup, Episode, EpisodeStatus
+from models import PodcastGroup, Episode, EpisodeStatus, Presenter, Writer, NewsFeed
 from schemas import (
     PodcastGroup as PodcastGroupSchema,
     Episode as EpisodeSchema,
@@ -23,8 +23,9 @@ from schemas import (
     GenerationResponse,
     HealthCheck
 )
+from pydantic import BaseModel
 from app.celery import celery
-from app.services import EpisodeGenerationService
+from app.services import EpisodeGenerationService, PersonaGenerationService
 import os
 import redis
 
@@ -34,8 +35,26 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Overseer Service", version="1.0.0")
 
+
+# Pydantic models for persona generation
+class PersonaGenerationRequest(BaseModel):
+    group_id: UUID
+    category: Optional[str] = "General"
+    recent_articles: Optional[List[str]] = None
+
+
+class PersonaGenerationResponse(BaseModel):
+    name: str
+    bio: str
+    persona: str
+    voice_style: str
+    system_prompt: str
+    created: bool
+    presenter_id: Optional[str] = None
+
 # Initialize services
 episode_generation_service = EpisodeGenerationService()
+persona_generation_service = PersonaGenerationService()
 
 # Create tables on startup
 @app.on_event("startup")
@@ -361,31 +380,71 @@ async def auto_create_podcast_groups(db: Session = Depends(get_db)):
             writers = [default_writer]
             
         if not presenters:
-            # Create default presenters
-            default_presenters = [
-                Presenter(
-                    name="AI News Presenter",
-                    bio="AI-powered news presenter specializing in current events",
-                    age=30,
-                    gender="neutral",
-                    specialties=["news", "current_events"],
-                    voice_model="vibevoice"
-                ),
-                Presenter(
-                    name="Tech AI Presenter", 
-                    bio="AI presenter focused on technology and innovation",
-                    age=28,
-                    gender="neutral",
-                    specialties=["technology", "ai", "innovation"],
-                    voice_model="vibevoice"
-                )
-            ]
-            for presenter in default_presenters:
-                db.add(presenter)
+            # Create default presenters using LLM persona generation
+            logger.info("🎭 Generating AI presenter personas...")
+            default_presenters = []
+            
+            # Generate personas for different categories
+            categories = ["Technology", "News", "Finance", "General"]
+            for category in categories:
+                try:
+                    # Create a temporary group for persona generation context
+                    temp_group = PodcastGroup(
+                        name=f"Temp {category} Group",
+                        category=category,
+                        status="active"
+                    )
+                    db.add(temp_group)
+                    db.commit()
+                    db.refresh(temp_group)
+                    
+                    # Generate persona for this category
+                    persona_data = await persona_generation_service.generate_presenter_persona(
+                        group_id=temp_group.id,
+                        group_category=category
+                    )
+                    
+                    # Create presenter from generated persona
+                    presenter = Presenter(
+                        name=persona_data["name"],
+                        bio=persona_data["bio"],
+                        persona=persona_data["persona"],
+                        voice_model="vibevoice",
+                        llm_model="qwen2.5:latest",
+                        system_prompt=persona_data["system_prompt"],
+                        specialties=[category.lower()],
+                        age=30,
+                        gender="neutral",
+                        status="active"
+                    )
+                    db.add(presenter)
+                    default_presenters.append(presenter)
+                    
+                    # Clean up temp group
+                    db.delete(temp_group)
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to generate persona for {category}, using fallback: {e}")
+                    # Fallback presenter
+                    presenter = Presenter(
+                        name=f"AI {category} Presenter",
+                        bio=f"AI-powered {category.lower()} presenter",
+                        age=30,
+                        gender="neutral",
+                        specialties=[category.lower()],
+                        voice_model="vibevoice",
+                        llm_model="qwen2.5:latest",
+                        system_prompt=f"You are a knowledgeable {category.lower()} presenter. Provide clear, engaging commentary.",
+                        status="active"
+                    )
+                    db.add(presenter)
+                    default_presenters.append(presenter)
+            
             db.commit()
             for presenter in default_presenters:
                 db.refresh(presenter)
             presenters = default_presenters
+            logger.info(f"✅ Generated {len(presenters)} AI presenter personas")
         
         # Create podcast groups by category if they don't exist
         categories = ["Technology", "News", "Finance", "General"]
@@ -671,6 +730,57 @@ async def get_duplicates_since(since: str):
     except Exception as e:
         logger.error(f"Error queuing cleanup task: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to queue cleanup task: {str(e)}")
+
+
+@app.post("/api/presenters/auto-generate", response_model=PersonaGenerationResponse)
+async def auto_generate_presenter_persona(
+    request: PersonaGenerationRequest,
+    db: Session = Depends(get_db)
+):
+    """Generate a presenter persona using LLM and optionally create the presenter."""
+    try:
+        logger.info(f"🎭 Generating presenter persona for group {request.group_id}")
+        
+        # Generate persona using LLM
+        persona_data = await persona_generation_service.generate_presenter_persona(
+            group_id=request.group_id,
+            group_category=request.category,
+            recent_articles=request.recent_articles
+        )
+        
+        # Create presenter record in database
+        presenter = Presenter(
+            name=persona_data["name"],
+            bio=persona_data["bio"],
+            persona=persona_data["persona"],
+            voice_model="vibevoice",
+            llm_model="qwen2.5:latest",
+            system_prompt=persona_data["system_prompt"],
+            specialties=[request.category.lower()] if request.category else ["general"],
+            age=30,  # Default age
+            gender="neutral",  # Default gender
+            status="active"
+        )
+        
+        db.add(presenter)
+        db.commit()
+        db.refresh(presenter)
+        
+        logger.info(f"✅ Created presenter: {presenter.name} (ID: {presenter.id})")
+        
+        return PersonaGenerationResponse(
+            name=persona_data["name"],
+            bio=persona_data["bio"],
+            persona=persona_data["persona"],
+            voice_style=persona_data["voice_style"],
+            system_prompt=persona_data["system_prompt"],
+            created=True,
+            presenter_id=str(presenter.id)
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating presenter persona: {e}")
+        raise HTTPException(status_code=500, detail=f"Persona generation failed: {str(e)}")
 
 
 # Import Celery tasks

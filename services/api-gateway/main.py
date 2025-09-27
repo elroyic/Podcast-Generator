@@ -1113,6 +1113,12 @@ async def auto_create_groups():
     return await call_service("ai-overseer", "POST", "/auto-create-groups")
 
 
+@app.post("/api/presenters/auto-generate")
+async def auto_generate_presenter_persona(request: dict):
+    """Generate a presenter persona using LLM."""
+    return await call_service("ai-overseer", "POST", "/api/presenters/auto-generate", json=request)
+
+
 @app.post("/api/news-feed/refresh/{feed_id}")
 async def refresh_feed(feed_id: UUID, db: Session = Depends(get_db)):
     """Trigger a manual refresh of a specific news feed."""
