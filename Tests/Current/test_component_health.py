@@ -27,7 +27,7 @@ SERVICE_URLS = {
     "reviewer": "http://localhost:8009",
     "collections": "http://localhost:8011",
     "podcast-host": "http://localhost:8012",
-    "nginx": "http://localhost:8090"
+    "nginx": "http://localhost:8095"
 }
 
 

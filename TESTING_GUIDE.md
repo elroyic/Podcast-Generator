@@ -210,7 +210,7 @@ Ensure all services are defined in `docker-compose.yml`:
 - podcast-host (port 8012)
 - vllm (port 8000)
 - ollama (port 11434)
-- nginx (port 8090)
+- nginx (port 8095)
 
 ## 🐛 Troubleshooting
 

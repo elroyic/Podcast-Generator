@@ -105,12 +105,18 @@
 
             <!-- Feed Performance Chart -->
             <div class="bg-white shadow rounded-lg p-6 mb-8">
-                <h3 class="text-lg font-medium text-gray-900 mb-4">Feed Performance (Last 24 Hours)</h3>
-                <div class="h-64 flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg">
-                    <div class="text-center">
-                        <i class="bi bi-graph-up text-4xl text-gray-400 mb-2"></i>
-                        <p class="text-gray-500">Performance chart will be implemented here</p>
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-medium text-gray-900">Feed Performance (Last 24 Hours)</h3>
+                    <div>
+                        <select id="perf-range" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                            <option value="24" selected>24h</option>
+                            <option value="12">12h</option>
+                            <option value="48">48h</option>
+                        </select>
                     </div>
+                </div>
+                <div id="perfChartContainer" class="relative h-64">
+                    <canvas id="perfChart" class="w-full h-full"></canvas>
                 </div>
             </div>
 
@@ -184,7 +190,56 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
+        let perfChartRef = null;
+        async function loadPerformance(hours = 24) {
+            try {
+                const response = await fetch(`/api/news-feed/performance?hours=${hours}`);
+                const data = await response.json();
+                const canvas = document.getElementById('perfChart');
+                const ctx = canvas.getContext('2d');
+
+                const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+                gradient.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+                gradient.addColorStop(1, 'rgba(59, 130, 246, 0.05)');
+
+                const chartData = {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Articles per hour',
+                        data: data.counts,
+                        borderColor: '#3b82f6',
+                        backgroundColor: gradient,
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: 2,
+                    }]
+                };
+
+                const options = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { mode: 'index', intersect: false }
+                    }
+                };
+
+                if (perfChartRef) {
+                    perfChartRef.data = chartData;
+                    perfChartRef.update();
+                } else {
+                    perfChartRef = new Chart(ctx, { type: 'line', data: chartData, options });
+                }
+            } catch (e) {
+                console.error('Error loading performance:', e);
+            }
+        }
         async function loadFeedStats() {
             try {
                 const response = await fetch('/api/news-feed/stats');
@@ -382,6 +437,10 @@
             loadFeedStats();
             loadFeeds();
             loadRecentArticles();
+            loadPerformance();
+            document.getElementById('perf-range').addEventListener('change', (e) => {
+                loadPerformance(parseInt(e.target.value, 10));
+            });
         });
     </script>
 </body>

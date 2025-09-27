@@ -348,7 +348,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8090:8080"
+      - "8095:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - storage_data:/app/storage:ro

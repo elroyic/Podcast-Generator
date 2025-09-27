@@ -107,6 +107,8 @@ class NewsFeed(NewsFeedBase):
     last_fetched: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    # Computed fields (not persisted)
+    article_count: Optional[int] = None
 
 
 # Article schemas

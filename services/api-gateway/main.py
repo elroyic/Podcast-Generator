@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 from shared.database import get_db, create_tables
 from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed
@@ -48,7 +48,7 @@ app = FastAPI(title="Podcast AI API Gateway", version="1.0.0")
 
 # Templates for admin interface
 templates = Jinja2Templates(directory="templates")
-PUBLIC_MEDIA_BASE_URL = os.getenv("PUBLIC_MEDIA_BASE_URL", "http://localhost:8090")
+PUBLIC_MEDIA_BASE_URL = os.getenv("PUBLIC_MEDIA_BASE_URL", "http://localhost:8095")
 
 # JWT Configuration
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
@@ -879,6 +879,56 @@ async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
         })
     
     return result
+
+
+@app.get("/api/news-feed/performance")
+async def get_news_feed_performance(hours: int = 24, db: Session = Depends(get_db)):
+    """Return time-series of article counts per hour for the last N hours.
+    Uses Article.created_at for ingestion-based performance.
+    """
+    from shared.models import Article
+    from datetime import datetime, timedelta
+
+    # Normalize to the top of the current hour (UTC)
+    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    start = now - timedelta(hours=hours - 1)
+
+    # Query counts grouped per hour using Postgres date_trunc
+    rows = (
+        db.query(
+            func.date_trunc('hour', Article.created_at).label('bucket'),
+            func.count(Article.id)
+        )
+        .filter(Article.created_at >= start)
+        .group_by('bucket')
+        .order_by('bucket')
+        .all()
+    )
+
+    # Map results for quick lookup
+    bucket_to_count = {}
+    for bucket_dt, count in rows:
+        try:
+            # bucket_dt may be timezone-aware depending on DB config
+            key = bucket_dt.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+        except Exception:
+            key = bucket_dt
+        bucket_to_count[key] = int(count)
+
+    labels: list[str] = []
+    counts: list[int] = []
+    # Build a contiguous series covering the full window
+    for i in range(hours):
+        ts = start + timedelta(hours=i)
+        labels.append(ts.strftime("%H:00"))
+        counts.append(int(bucket_to_count.get(ts, 0)))
+
+    return {
+        "start": start.isoformat() + "Z",
+        "end": now.isoformat() + "Z",
+        "labels": labels,
+        "counts": counts,
+    }
 
 
 @app.post("/api/news-feed/refresh/{feed_id}")

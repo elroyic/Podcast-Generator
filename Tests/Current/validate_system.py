@@ -32,7 +32,7 @@ EXPECTED_SERVICES = {
     "podcast-host": {"port": 8012, "type": "service", "health_endpoint": "/health"},
     "vllm": {"port": 8000, "type": "service", "health_endpoint": "/health"},
     "ollama": {"port": 11434, "type": "service", "health_endpoint": "/api/tags"},
-    "nginx": {"port": 8090, "type": "service", "health_endpoint": "/health"}
+    "nginx": {"port": 8095, "type": "service", "health_endpoint": "/health"}
 }
 
 
