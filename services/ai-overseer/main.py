@@ -268,6 +268,75 @@ async def get_system_stats(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to get system stats: {str(e)}")
 
 
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint."""
+    try:
+        from fastapi.responses import PlainTextResponse
+        from datetime import timedelta
+        
+        # Episode counts by status
+        episode_counts = {}
+        total_episodes = 0
+        for status in EpisodeStatus:
+            count = db.query(Episode).filter(Episode.status == status).count()
+            episode_counts[status.value] = count
+            total_episodes += count
+        
+        # Recent episode generation stats (last 24 hours)
+        yesterday = datetime.utcnow() - timedelta(hours=24)
+        recent_generations = db.query(Episode).filter(
+            Episode.created_at >= yesterday
+        ).count()
+        
+        # Active groups
+        active_groups = db.query(PodcastGroup).filter(
+            PodcastGroup.status == "active"
+        ).count()
+        
+        # Calculate average generation duration (placeholder - would need tracking)
+        avg_duration = 300  # 5 minutes default
+        
+        metrics = []
+        
+        # Episode totals
+        metrics.append(f"overseer_episodes_generated_total {total_episodes}")
+        
+        # Episodes by status
+        for status, count in episode_counts.items():
+            metrics.append(f'overseer_episodes_by_status{{status="{status}"}} {count}')
+        
+        # Recent activity
+        metrics.append(f"overseer_episodes_generated_last_24h {recent_generations}")
+        
+        # Active groups
+        metrics.append(f"overseer_active_groups_total {active_groups}")
+        
+        # Average duration
+        metrics.append(f"overseer_generation_duration_seconds {avg_duration}")
+        
+        prometheus_output = "\n".join([
+            "# HELP overseer_episodes_generated_total Total episodes generated",
+            "# TYPE overseer_episodes_generated_total counter",
+            "# HELP overseer_episodes_by_status Episodes by status",
+            "# TYPE overseer_episodes_by_status gauge",
+            "# HELP overseer_episodes_generated_last_24h Episodes generated in last 24 hours",
+            "# TYPE overseer_episodes_generated_last_24h gauge",
+            "# HELP overseer_active_groups_total Number of active podcast groups",
+            "# TYPE overseer_active_groups_total gauge",
+            "# HELP overseer_generation_duration_seconds Average episode generation duration",
+            "# TYPE overseer_generation_duration_seconds gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+        
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate metrics: {str(e)}")
+
+
 @app.post("/admin/cleanup")
 async def cleanup_old_data(background_tasks: BackgroundTasks):
     """Trigger cleanup of old episodes and data."""
@@ -280,6 +349,25 @@ async def cleanup_old_data(background_tasks: BackgroundTasks):
             "message": "Cleanup task queued",
             "task_id": task.id
         }
+
+
+@app.get("/cadence/status")
+async def get_cadence_status(group_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """Get cadence status for podcast groups."""
+    try:
+        if group_id:
+            # Single group status
+            from uuid import UUID
+            group_uuid = UUID(group_id)
+            status = episode_generation_service.cadence_manager.get_cadence_status(group_uuid, db)
+            return status
+        else:
+            # All groups status
+            statuses = episode_generation_service.cadence_manager.get_all_cadence_statuses(db)
+            return {"cadence_statuses": statuses}
+    except Exception as e:
+        logger.error(f"Error getting cadence status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get cadence status: {str(e)}")
 
 
 @app.get("/api/overseer/duplicates")

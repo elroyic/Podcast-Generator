@@ -39,6 +39,17 @@ class MetadataGenerationResponse(BaseModel):
     generation_metadata: Dict[str, Any]
 
 
+class ScriptGenerationRequest(BaseModel):
+    group_id: UUID
+    articles: List[str]  # Article content/summaries for the episode
+    style_preferences: Optional[Dict[str, Any]] = None
+
+
+class ScriptGenerationResponse(BaseModel):
+    script: str
+    generation_metadata: Dict[str, Any]
+
+
 class OllamaClient:
     """Client for interacting with Ollama API."""
     
@@ -80,6 +91,140 @@ class OllamaClient:
         except Exception as e:
             logger.error(f"Error generating metadata with Ollama: {e}")
             raise HTTPException(status_code=500, detail=f"Metadata generation failed: {str(e)}")
+
+
+class ScriptGenerator:
+    """Handles episode script generation logic using Qwen3."""
+    
+    def __init__(self):
+        self.ollama_client = OllamaClient()
+    
+    def create_script_system_prompt(self, podcast_group: PodcastGroup) -> str:
+        """Create system prompt for script generation."""
+        return f"""
+You are an expert podcast script writer creating engaging, professional podcast content.
+
+PODCAST DETAILS:
+- Name: {podcast_group.name}
+- Description: {podcast_group.description or 'No description'}
+- Category: {podcast_group.category or 'General'}
+- Language: {podcast_group.language or 'English'}
+- Target Audience: General audience interested in {podcast_group.category or 'current events'}
+
+SCRIPT WRITING GUIDELINES:
+1. Write in a conversational, engaging style suitable for audio
+2. Include natural transitions between topics
+3. Start with a compelling introduction
+4. Present information clearly and concisely
+5. Include interesting insights and analysis
+6. End with a strong conclusion
+7. Aim for 8-12 minutes of content (1200-1800 words)
+8. Use presenter-friendly language (easy to speak)
+9. Include natural pauses and emphasis cues
+
+STYLE REQUIREMENTS:
+- Maintain professional yet conversational tone
+- Use active voice and clear sentence structure
+- Include rhetorical questions to engage listeners
+- Provide context for complex topics
+- Balance information with entertainment value
+- Don't include URLs or complex technical references
+- Write for clarity when spoken aloud
+
+FORMAT:
+Write a complete podcast script ready for voice synthesis.
+Include speaker directions in [brackets] where helpful.
+Organize content with clear topic transitions.
+"""
+
+    def create_script_content_prompt(self, articles: List[str], podcast_group: PodcastGroup) -> str:
+        """Create the main content prompt for script generation."""
+        articles_text = "\n\n".join([f"Article {i+1}: {article[:1000]}" for i, article in enumerate(articles)])
+        
+        return f"""
+Create a compelling podcast script based on the following news articles and information:
+
+PODCAST: {podcast_group.name}
+CATEGORY: {podcast_group.category or 'General News'}
+EPISODE FOCUS: Current events and trending topics
+
+SOURCE ARTICLES:
+{articles_text}
+
+SCRIPT REQUIREMENTS:
+1. Create an engaging opening that introduces the episode theme
+2. Synthesize the key information from all articles into a cohesive narrative
+3. Provide analysis and context, not just summaries
+4. Include smooth transitions between different topics
+5. Maintain listener engagement throughout
+6. End with a memorable conclusion or call-to-action
+7. Target 1200-1800 words for optimal listening experience
+8. Write in a natural speaking style
+
+STRUCTURE SUGGESTION:
+- Opening: Welcome and episode preview (100-150 words)
+- Main Content: Article synthesis and analysis (900-1400 words)
+- Closing: Summary and wrap-up (100-200 words)
+
+Please write the complete podcast script:
+"""
+
+    async def generate_episode_script(
+        self,
+        request: ScriptGenerationRequest,
+        podcast_group: PodcastGroup
+    ) -> ScriptGenerationResponse:
+        """Generate episode script from articles."""
+        
+        logger.info(f"Generating script for podcast group: {podcast_group.name}")
+        
+        # Create prompts
+        system_prompt = self.create_script_system_prompt(podcast_group)
+        content_prompt = self.create_script_content_prompt(request.articles, podcast_group)
+        
+        # Generate script with graceful fallback
+        model = DEFAULT_MODEL
+        script_text = ""
+        fallback_used = False
+        try:
+            script_text = await self.ollama_client.generate_metadata(  # Reusing the client method
+                model=model,
+                prompt=content_prompt,
+                system_prompt=system_prompt
+            )
+        except Exception as e:
+            logger.warning(f"Ollama script generation failed, using fallback: {e}")
+            fallback_used = True
+            # Simple fallback script generation
+            script_text = self._generate_fallback_script(request.articles, podcast_group)
+        
+        generation_metadata = {
+            "model_used": model,
+            "generation_timestamp": datetime.utcnow().isoformat(),
+            "article_count": len(request.articles),
+            "style_preferences": request.style_preferences or {},
+            "fallback_used": fallback_used,
+            "script_length_words": len(script_text.split()) if script_text else 0
+        }
+        
+        return ScriptGenerationResponse(
+            script=script_text,
+            generation_metadata=generation_metadata
+        )
+    
+    def _generate_fallback_script(self, articles: List[str], podcast_group: PodcastGroup) -> str:
+        """Generate a basic fallback script when Ollama fails."""
+        intro = f"Welcome to {podcast_group.name}, your source for {podcast_group.category or 'current events'}."
+        
+        content_parts = []
+        for i, article in enumerate(articles[:3]):  # Limit to first 3 articles
+            article_preview = article[:300] + "..." if len(article) > 300 else article
+            content_parts.append(f"In today's episode, we'll discuss {article_preview}")
+        
+        content = " ".join(content_parts)
+        outro = f"Thank you for listening to {podcast_group.name}. Stay informed and stay engaged."
+        
+        return f"{intro}\n\n{content}\n\n{outro}"
 
 
 class MetadataGenerator:
@@ -294,6 +439,7 @@ Please generate the metadata as a JSON object:
 
 
 # Initialize services
+script_generator = ScriptGenerator()
 metadata_generator = MetadataGenerator()
 
 # Create tables on startup
@@ -307,6 +453,31 @@ async def startup_event():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "writer", "timestamp": datetime.utcnow()}
+
+
+@app.post("/generate-script", response_model=ScriptGenerationResponse)
+async def generate_script(
+    request: ScriptGenerationRequest,
+    db: Session = Depends(get_db)
+):
+    """Generate episode script from articles."""
+    
+    # Get podcast group details
+    podcast_group = db.query(PodcastGroup).filter(
+        PodcastGroup.id == request.group_id
+    ).first()
+    
+    if not podcast_group:
+        raise HTTPException(status_code=404, detail="Podcast group not found")
+    
+    try:
+        result = await script_generator.generate_episode_script(request, podcast_group)
+        logger.info(f"Successfully generated script for podcast group {request.group_id}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error generating script for group {request.group_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Script generation failed: {str(e)}")
 
 
 @app.post("/generate-metadata", response_model=MetadataGenerationResponse)

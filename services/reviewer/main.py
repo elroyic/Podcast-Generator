@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Reviewer Service", version="1.0.0")
 
 # Configuration
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:latest")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+LIGHT_REVIEWER_URL = os.getenv("LIGHT_REVIEWER_URL", "http://light-reviewer:8000")
+HEAVY_REVIEWER_URL = os.getenv("HEAVY_REVIEWER_URL", "http://heavy-reviewer:8000")
 
 # Reviewer defaults (can be overridden via Redis config)
 DEFAULT_CONF_THRESHOLD = float(os.getenv("REVIEWER_CONF_THRESHOLD", "0.85"))
@@ -94,54 +94,48 @@ class MetricsResponse(BaseModel):
     queue_length: int
 
 
-class OllamaClient:
-    """Client for interacting with Ollama API."""
+class ReviewerClient:
+    """Client for interacting with Light and Heavy Reviewer services."""
     
-    def __init__(self, base_url: str = OLLAMA_BASE_URL):
-        self.base_url = base_url
+    def __init__(self, light_url: str = LIGHT_REVIEWER_URL, heavy_url: str = HEAVY_REVIEWER_URL):
+        self.light_url = light_url
+        self.heavy_url = heavy_url
         self.client = httpx.AsyncClient(timeout=60.0)
     
-    async def generate_review(
-        self,
-        model: str,
-        prompt: str,
-        system_prompt: str = None
-    ) -> str:
-        """Generate article review using Ollama."""
+    async def generate_light_review(self, request: FeedReviewRequest) -> Dict[str, Any]:
+        """Generate review using Light Reviewer service."""
         try:
-            payload = {
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.3,  # Lower temperature for more consistent categorization
-                    "top_p": 0.8,
-                    "max_tokens": 1000
-                }
-            }
-            
-            if system_prompt:
-                payload["system"] = system_prompt
-            
             response = await self.client.post(
-                f"{self.base_url}/api/generate",
-                json=payload
+                f"{self.light_url}/review",
+                json=request.dict()
             )
             response.raise_for_status()
-            
-            result = response.json()
-            return result.get("response", "")
+            return response.json()
             
         except Exception as e:
-            logger.error(f"Error generating review with Ollama: {e}")
-            raise HTTPException(status_code=500, detail=f"Review generation failed: {str(e)}")
+            logger.error(f"Error calling Light Reviewer service: {e}")
+            raise HTTPException(status_code=500, detail=f"Light review generation failed: {str(e)}")
+    
+    async def generate_heavy_review(self, request: FeedReviewRequest) -> Dict[str, Any]:
+        """Generate review using Heavy Reviewer service."""
+        try:
+            response = await self.client.post(
+                f"{self.heavy_url}/review",
+                json=request.dict()
+            )
+            response.raise_for_status()
+            return response.json()
+            
+        except Exception as e:
+            logger.error(f"Error calling Heavy Reviewer service: {e}")
+            raise HTTPException(status_code=500, detail=f"Heavy review generation failed: {str(e)}")
 
 
 class ArticleReviewer:
     """Handles article review and categorization logic."""
     
     def __init__(self):
-        self.ollama_client = OllamaClient()
+        self.reviewer_client = ReviewerClient()
         self.redis = redis.Redis.from_url(REDIS_URL, decode_responses=True)
         self.config_key = "reviewer:config"
         self.metrics_prefix = "reviewer:metrics"
@@ -151,142 +145,24 @@ class ArticleReviewer:
         self.conf_hist = f"{self.metrics_prefix}:conf_hist"
         self.queue_key = "reviewer:queue"
     
-    def create_system_prompt(self) -> str:
-        """Create system prompt for article review."""
-        return """
-You are an expert news article reviewer and categorizer. Analyze the article and output JSON only.
-
-REVIEW REQUIREMENTS:
-1. topic: Main subject area (specific, creative)
-2. subject: More specific subject within topic
-3. tags: 3-5 relevant tags (diverse, trending keywords)
-4. summary: Concise summary (<= 500 chars)
-5. importance_rank: Integer 1-10 (1=low, 10=critical)
-6. confidence: Float 0.0-1.0 representing confidence in your topic classification
-
-OUTPUT STRICTLY JSON (no prose):
-{
-  "topic": "...",
-  "subject": "...",
-  "tags": ["..."],
-  "summary": "...",
-  "importance_rank": 7,
-  "confidence": 0.84
-}
-"""
-
-    def create_content_prompt(self, article: Article) -> str:
-        """Create the main content prompt for article review."""
-        return f"""
-Please review and categorize the following news article:
-
-TITLE: {article.title}
-
-SUMMARY: {article.summary or 'No summary available'}
-
-CONTENT: {article.content[:2000] if article.content else 'No content available'}
-
-PUBLISH DATE: {article.publish_date.isoformat() if article.publish_date else 'Unknown'}
-
-SOURCE: {article.news_feed.name if article.news_feed else 'Unknown'}
-
-Please provide a structured review with topic, subject, tags, summary, and importance ranking as specified in the system prompt.
-"""
-
-    def parse_review_response(self, response: str, article_id: UUID) -> ArticleReview:
-        """Parse the Ollama response into structured review."""
-        try:
-            import json
-            import re
-            
-            # Look for JSON in the response
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group()
-                review_dict = json.loads(json_str)
-            else:
-                # Fallback: parse manually from text
-                review_dict = self._parse_text_response(response)
-            
-            # Validate and clean the data
-            topic = review_dict.get("topic", "General").strip()
-            subject = review_dict.get("subject", "General").strip()
-            tags = review_dict.get("tags", [])
-            if isinstance(tags, str):
-                tags = [tag.strip() for tag in tags.split(",")]
-            tags = [tag.strip() for tag in tags if tag.strip()][:5]  # Limit to 5 tags
-            
-            summary = review_dict.get("summary", "").strip()
-            if len(summary) > 500:
-                summary = summary[:497] + "..."
-            
-            importance_rank = review_dict.get("importance_rank", 5)
-            if not isinstance(importance_rank, int) or importance_rank < 1 or importance_rank > 10:
-                importance_rank = 5
-            confidence_val = review_dict.get("confidence", 0.0)
-            try:
-                confidence = float(confidence_val)
-            except Exception:
-                confidence = 0.0
-            confidence = max(0.0, min(1.0, confidence))
-            
-            return ArticleReview(
-                article_id=article_id,
-                topic=topic,
-                subject=subject,
-                tags=tags,
-                summary=summary,
-                importance_rank=importance_rank,
-                confidence=confidence,
-                review_metadata={
-                    "model_used": DEFAULT_MODEL,
-                    "review_timestamp": datetime.utcnow().isoformat(),
-                    "raw_response": response[:500] + "..." if len(response) > 500 else response
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error parsing review response: {e}")
-            # Return default review
-            return ArticleReview(
-                article_id=article_id,
-                topic="General",
-                subject="General",
-                tags=["news", "general"],
-                summary="Article review failed - using default categorization",
-                importance_rank=5,
-                confidence=0.0,
-                review_metadata={
-                    "model_used": DEFAULT_MODEL,
-                    "review_timestamp": datetime.utcnow().isoformat(),
-                    "error": str(e),
-                    "raw_response": response[:200] if response else ""
-                }
-            )
     
-    def _parse_text_response(self, response: str) -> Dict[str, Any]:
-        """Parse review from text response when JSON parsing fails."""
-        lines = response.split('\n')
-        review = {}
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith("Topic:"):
-                review["topic"] = line.replace("Topic:", "").strip()
-            elif line.startswith("Subject:"):
-                review["subject"] = line.replace("Subject:", "").strip()
-            elif line.startswith("Tags:"):
-                tags_str = line.replace("Tags:", "").strip()
-                review["tags"] = [tag.strip() for tag in tags_str.split(",")]
-            elif line.startswith("Summary:"):
-                review["summary"] = line.replace("Summary:", "").strip()
-            elif line.startswith("Importance Rank:"):
-                try:
-                    review["importance_rank"] = int(line.replace("Importance Rank:", "").strip())
-                except ValueError:
-                    review["importance_rank"] = 5
-        
-        return review
+    def _convert_service_response_to_review(self, service_response: Dict[str, Any], article_id: UUID, model: str) -> ArticleReview:
+        """Convert response from Light/Heavy Reviewer service to ArticleReview."""
+        # Service response format: {"tags": [...], "summary": "...", "confidence": 0.X, "model": "..."}
+        return ArticleReview(
+            article_id=article_id,
+            topic="General",  # Services don't return topic/subject, keeping simple
+            subject="General",
+            tags=service_response.get("tags", ["news", "general"]),
+            summary=service_response.get("summary", "Review completed"),
+            importance_rank=5,  # Default importance
+            confidence=service_response.get("confidence", 0.0),
+            review_metadata={
+                "model_used": model,
+                "review_timestamp": datetime.utcnow().isoformat(),
+                "service_response": service_response
+            }
+        )
     
     async def review_article(
         self,
@@ -294,10 +170,6 @@ Please provide a structured review with topic, subject, tags, summary, and impor
     ) -> Dict[str, Any]:
         """Two-tier review with Light/Heavy based on confidence threshold."""
         logger.info(f"Reviewing article: {article.title[:80]}...")
-
-        # Build prompts once
-        system_prompt = self.create_system_prompt()
-        content_prompt = self.create_content_prompt(article)
 
         # Load runtime config
         cfg = self._load_config()
@@ -307,15 +179,20 @@ Please provide a structured review with topic, subject, tags, summary, and impor
         fallback_used = False
         model_used = cfg.light_model
 
+        # Create request for reviewer services
+        feed_request = FeedReviewRequest(
+            feed_id=str(article.feed_id),
+            title=article.title,
+            url=article.link,
+            content=article.content or article.summary or "",
+            published=article.publish_date.isoformat() if article.publish_date else ""
+        )
+
         # LIGHT pass
         t0 = datetime.utcnow()
         try:
-            light_resp = await self.ollama_client.generate_review(
-                model=cfg.light_model,
-                prompt=content_prompt,
-                system_prompt=system_prompt
-            )
-            review = self.parse_review_response(light_resp, article.id)
+            light_result = await self.reviewer_client.generate_light_review(feed_request)
+            review = self._convert_service_response_to_review(light_result, article.id, cfg.light_model)
             timings["light_ms"] = (datetime.utcnow() - t0).total_seconds() * 1000.0
             self._record_latency("light", timings["light_ms"]) 
             self._record_confidence(review.confidence)
@@ -337,12 +214,8 @@ Please provide a structured review with topic, subject, tags, summary, and impor
             while retries < 3:
                 t1 = datetime.utcnow()
                 try:
-                    heavy_resp = await self.ollama_client.generate_review(
-                        model=cfg.heavy_model,
-                        prompt=content_prompt,
-                        system_prompt=system_prompt
-                    )
-                    review = self.parse_review_response(heavy_resp, article.id)
+                    heavy_result = await self.reviewer_client.generate_heavy_review(feed_request)
+                    review = self._convert_service_response_to_review(heavy_result, article.id, cfg.heavy_model)
                     timings["heavy_ms"] = (datetime.utcnow() - t1).total_seconds() * 1000.0
                     self._record_latency("heavy", timings["heavy_ms"]) 
                     self._record_confidence(review.confidence)
@@ -537,26 +410,45 @@ async def review_article(
 @app.post("/review")
 async def review_feed(request: FeedReviewRequest):
     """Review a feed item (stateless) and return tags/summary/confidence."""
-    # Build transient Article-like object
-    dummy = Article(
-        id=UUID("00000000-0000-0000-0000-000000000000"),
-        feed_id=UUID("00000000-0000-0000-0000-000000000000"),
-        title=request.title,
-        link=request.url,
-        summary=request.content or "",
-        content=request.content or "",
-        publish_date=datetime.fromisoformat(request.published.replace("Z", "+00:00")) if request.published else None
-    )
-    result = await article_reviewer.review_article(dummy)
-    review: ArticleReview = result["review"]
     cfg = article_reviewer._load_config()
-    return {
-        "tags": review.tags,
-        "summary": review.summary,
-        "confidence": review.confidence,
-        "model": review.review_metadata.get("model_used", cfg.light_model),
-        "reviewer_type": result.get("reviewer_type", "light"),
-    }
+    
+    # Start with light reviewer
+    try:
+        light_result = await article_reviewer.reviewer_client.generate_light_review(request)
+        confidence = light_result.get("confidence", 0.0)
+        
+        # Use heavy reviewer if confidence is below threshold and heavy is enabled
+        if cfg.heavy_enabled and confidence < cfg.conf_threshold:
+            try:
+                heavy_result = await article_reviewer.reviewer_client.generate_heavy_review(request)
+                return {
+                    "tags": heavy_result.get("tags", ["news", "general"]),
+                    "summary": heavy_result.get("summary", "Review completed"),
+                    "confidence": heavy_result.get("confidence", 0.0),
+                    "model": cfg.heavy_model,
+                    "reviewer_type": "heavy",
+                }
+            except Exception as e:
+                logger.warning(f"Heavy reviewer failed, falling back to light result: {e}")
+                # Fall through to return light result
+        
+        return {
+            "tags": light_result.get("tags", ["news", "general"]),
+            "summary": light_result.get("summary", "Review completed"),
+            "confidence": confidence,
+            "model": cfg.light_model,
+            "reviewer_type": "light",
+        }
+        
+    except Exception as e:
+        logger.error(f"Review failed: {e}")
+        return {
+            "tags": ["news", "general"],
+            "summary": "Review failed - using fallback",
+            "confidence": 0.0,
+            "model": "fallback",
+            "reviewer_type": "light",
+        }
 
 
 @app.get("/config", response_model=ReviewerConfig)
@@ -647,6 +539,95 @@ async def get_metrics():
     except Exception:
         pass
     return MetricsResponse(last_5m=last_5m, last_1h=last_1h, queue_length=qlen)
+
+
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    r = article_reviewer.redis
+    
+    # Calculate metrics
+    now = int(datetime.utcnow().timestamp())
+    
+    # Light reviewer latency
+    light_entries = r.lrange(article_reviewer.lat_list_light, 0, 999)
+    light_latencies = []
+    for entry in light_entries:
+        try:
+            ts_s, ms_s = entry.split("|", 1)
+            if now - int(ts_s) <= 3600:  # Last hour
+                light_latencies.append(int(ms_s))
+        except Exception:
+            continue
+    
+    # Heavy reviewer latency  
+    heavy_entries = r.lrange(article_reviewer.lat_list_heavy, 0, 999)
+    heavy_latencies = []
+    for entry in heavy_entries:
+        try:
+            ts_s, ms_s = entry.split("|", 1)
+            if now - int(ts_s) <= 3600:  # Last hour
+                heavy_latencies.append(int(ms_s))
+        except Exception:
+            continue
+    
+    # Queue length
+    queue_length = 0
+    try:
+        queue_length = r.llen(article_reviewer.queue_key)
+    except Exception:
+        pass
+    
+    # Confidence histogram
+    hist = r.hgetall(article_reviewer.conf_hist) or {}
+    
+    # Generate Prometheus format
+    metrics = []
+    
+    # Latency metrics
+    if light_latencies:
+        avg_light = sum(light_latencies) / len(light_latencies)
+        metrics.append(f"reviewer_light_latency_seconds {avg_light / 1000.0}")
+    else:
+        metrics.append("reviewer_light_latency_seconds 0")
+    
+    if heavy_latencies:
+        avg_heavy = sum(heavy_latencies) / len(heavy_latencies)
+        metrics.append(f"reviewer_heavy_latency_seconds {avg_heavy / 1000.0}")
+    else:
+        metrics.append("reviewer_heavy_latency_seconds 0")
+    
+    # Queue length
+    metrics.append(f"reviewer_queue_length {queue_length}")
+    
+    # Total reviews
+    metrics.append(f"reviewer_light_total {len(light_latencies)}")
+    metrics.append(f"reviewer_heavy_total {len(heavy_latencies)}")
+    
+    # Confidence buckets
+    for bucket, count in hist.items():
+        bucket_label = bucket.replace("-", "_to_")
+        metrics.append(f'reviewer_confidence_bucket_total{{bucket="{bucket}"}} {count}')
+    
+    prometheus_output = "\n".join([
+        "# HELP reviewer_light_latency_seconds Average latency for light reviewer",
+        "# TYPE reviewer_light_latency_seconds gauge",
+        "# HELP reviewer_heavy_latency_seconds Average latency for heavy reviewer", 
+        "# TYPE reviewer_heavy_latency_seconds gauge",
+        "# HELP reviewer_queue_length Current queue length",
+        "# TYPE reviewer_queue_length gauge",
+        "# HELP reviewer_light_total Total light reviews processed",
+        "# TYPE reviewer_light_total counter",
+        "# HELP reviewer_heavy_total Total heavy reviews processed",
+        "# TYPE reviewer_heavy_total counter",
+        "# HELP reviewer_confidence_bucket_total Review count by confidence bucket",
+        "# TYPE reviewer_confidence_bucket_total counter",
+        "",
+        *metrics
+    ])
+    
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(prometheus_output, media_type="text/plain")
 
 
 @app.post("/review-articles-batch")

@@ -144,6 +144,53 @@ async def health_check():
     return {"status": "healthy", "service": "presenter-mp3", "timestamp": datetime.utcnow()}
 
 
+# Global metrics storage (in production, would use Redis or proper metrics store)
+METRICS_STORAGE = {
+    "total_audio_generated": 0,
+    "total_failures": 0,
+    "total_duration_seconds": 0,
+    "last_generation_time": None
+}
+
+
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    metrics = []
+    
+    # Audio generation metrics
+    metrics.append(f"presenter_audio_generated_total {METRICS_STORAGE['total_audio_generated']}")
+    metrics.append(f"presenter_failures_total {METRICS_STORAGE['total_failures']}")
+    
+    # Duration metrics
+    if METRICS_STORAGE["total_audio_generated"] > 0:
+        avg_duration = METRICS_STORAGE["total_duration_seconds"] / METRICS_STORAGE["total_audio_generated"]
+        metrics.append(f"presenter_audio_duration_seconds {avg_duration}")
+    else:
+        metrics.append("presenter_audio_duration_seconds 0")
+    
+    # Last generation timestamp
+    if METRICS_STORAGE["last_generation_time"]:
+        metrics.append(f"presenter_last_generation_timestamp {METRICS_STORAGE['last_generation_time']}")
+    
+    prometheus_output = "\n".join([
+        "# HELP presenter_audio_generated_total Total audio files generated",
+        "# TYPE presenter_audio_generated_total counter",
+        "# HELP presenter_failures_total Total generation failures",
+        "# TYPE presenter_failures_total counter",
+        "# HELP presenter_audio_duration_seconds Average audio duration",
+        "# TYPE presenter_audio_duration_seconds gauge",
+        "# HELP presenter_last_generation_timestamp Last generation timestamp",
+        "# TYPE presenter_last_generation_timestamp gauge",
+        "",
+        *metrics
+    ])
+    
+    return PlainTextResponse(prometheus_output, media_type="text/plain")
+
+
 @app.post("/generate-audio", response_model=AudioGenerationResponse)
 async def generate_audio(request: AudioGenerationRequest):
     """Generate MP3 audio from script."""
@@ -173,6 +220,11 @@ async def generate_audio(request: AudioGenerationRequest):
             "channels": 2  # Stereo
         }
         
+        # Update metrics
+        METRICS_STORAGE["total_audio_generated"] += 1
+        METRICS_STORAGE["total_duration_seconds"] += actual_duration
+        METRICS_STORAGE["last_generation_time"] = datetime.utcnow().timestamp()
+        
         return AudioGenerationResponse(
             episode_id=request.episode_id,
             audio_url=f"file://{audio_path}",
@@ -184,6 +236,7 @@ async def generate_audio(request: AudioGenerationRequest):
         
     except Exception as e:
         logger.error(f"Error generating MP3 audio: {e}")
+        METRICS_STORAGE["total_failures"] += 1
         raise HTTPException(status_code=500, detail=f"MP3 audio generation failed: {str(e)}")
 
 
