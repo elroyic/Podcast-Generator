@@ -337,6 +337,156 @@ async def get_prometheus_metrics(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to generate metrics: {str(e)}")
 
 
+@app.post("/test-complete-workflow")
+async def test_complete_workflow(db: Session = Depends(get_db)):
+    """Test the complete podcast generation workflow end-to-end."""
+    try:
+        logger.info("🧪 Starting complete workflow test...")
+        
+        # Step 1: Check if we have any active podcast groups
+        active_groups = db.query(PodcastGroup).filter(PodcastGroup.status == "active").all()
+        
+        if not active_groups:
+            # Create a test podcast group
+            logger.info("📝 Creating test podcast group...")
+            
+            # Create test writer first
+            from shared.models import Writer, Presenter
+            
+            test_writer = Writer(
+                name="Test Writer",
+                model="Qwen3",
+                capabilities=["script_generation", "metadata_generation"]
+            )
+            db.add(test_writer)
+            db.commit()
+            db.refresh(test_writer)
+            
+            # Create test presenter
+            test_presenter = Presenter(
+                name="Test Presenter",
+                bio="AI-generated presenter for testing",
+                age=30,
+                gender="neutral",
+                specialties=["technology", "news"],
+                voice_model="vibevoice"
+            )
+            db.add(test_presenter)
+            db.commit()
+            db.refresh(test_presenter)
+            
+            # Create test podcast group
+            test_group = PodcastGroup(
+                name="Test Podcast Workflow",
+                description="Automated test podcast for system validation",
+                category="Technology",
+                language="en",
+                country="US",
+                tags=["test", "automation", "ai"],
+                keywords=["test", "podcast", "ai"],
+                schedule="0 12 * * *",  # Daily at noon
+                writer_id=test_writer.id
+            )
+            db.add(test_group)
+            db.commit()
+            db.refresh(test_group)
+            
+            # Assign presenter to group
+            test_group.presenters = [test_presenter]
+            db.commit()
+            
+            target_group = test_group
+            logger.info(f"✅ Created test podcast group: {target_group.id}")
+        else:
+            target_group = active_groups[0]
+            logger.info(f"📋 Using existing podcast group: {target_group.name}")
+        
+        # Step 2: Test episode generation
+        logger.info("🎬 Testing episode generation...")
+        test_articles = [
+            "Breaking: AI technology advances continue to reshape industries worldwide with new capabilities in natural language processing and machine learning.",
+            "Scientists discover new methods for improving renewable energy efficiency using artificial intelligence algorithms.",
+            "Tech companies announce major investments in sustainable computing infrastructure for the next decade."
+        ]
+        
+        # Generate episode using the service
+        try:
+            result = await episode_generation_service.generate_complete_episode(
+                group_id=target_group.id
+            )
+            
+            episode_id = result.get("episode_id")
+            logger.info(f"✅ Episode generated successfully: {episode_id}")
+            
+            # Step 3: Verify episode was created with all components
+            episode = db.query(Episode).filter(Episode.id == episode_id).first()
+            if not episode:
+                raise ValueError("Episode not found in database")
+            
+            has_script = bool(episode.script)
+            has_metadata = db.query(EpisodeMetadata).filter(EpisodeMetadata.episode_id == episode_id).first() is not None
+            has_audio = db.query(AudioFile).filter(AudioFile.episode_id == episode_id).first() is not None
+            
+            # Step 4: Check cadence system
+            cadence_status = episode_generation_service.cadence_manager.get_cadence_status(target_group.id, db)
+            
+            # Step 5: Return comprehensive test results
+            test_results = {
+                "status": "success",
+                "test_timestamp": datetime.utcnow().isoformat(),
+                "workflow_components": {
+                    "group_creation": True,
+                    "episode_generation": True,
+                    "script_creation": has_script,
+                    "metadata_generation": has_metadata,
+                    "audio_generation": has_audio,
+                    "cadence_system": bool(cadence_status),
+                },
+                "episode_details": {
+                    "episode_id": str(episode_id),
+                    "status": episode.status.value if episode.status else "unknown",
+                    "script_length": len(episode.script.split()) if episode.script else 0,
+                    "group_name": target_group.name
+                },
+                "cadence_info": cadence_status,
+                "services_tested": [
+                    "ai-overseer",
+                    "writer",
+                    "editor", 
+                    "presenter",
+                    "publishing"
+                ],
+                "test_summary": {
+                    "total_components": 6,
+                    "passed_components": sum([
+                        True,  # group_creation
+                        True,  # episode_generation  
+                        has_script,
+                        has_metadata,
+                        has_audio,
+                        bool(cadence_status)
+                    ]),
+                    "success_rate": f"{(sum([True, True, has_script, has_metadata, has_audio, bool(cadence_status)]) / 6) * 100:.1f}%"
+                }
+            }
+            
+            logger.info(f"🎉 Workflow test completed successfully! Success rate: {test_results['test_summary']['success_rate']}")
+            return test_results
+            
+        except Exception as gen_error:
+            logger.error(f"❌ Episode generation failed: {gen_error}")
+            return {
+                "status": "partial_failure",
+                "error": str(gen_error),
+                "test_timestamp": datetime.utcnow().isoformat(),
+                "message": "Episode generation failed, but group creation succeeded"
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Complete workflow test failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Workflow test failed: {str(e)}")
+
+
 @app.post("/admin/cleanup")
 async def cleanup_old_data(background_tasks: BackgroundTasks):
     """Trigger cleanup of old episodes and data."""

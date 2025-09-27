@@ -1,0 +1,14 @@
+# Trivy ignore file for known acceptable vulnerabilities
+
+# Development dependencies that are not used in production
+CVE-2023-XXXXX-dev-only
+
+# OS-level vulnerabilities that are patched by base image updates
+# (Add specific CVEs here that are known to be addressed in newer base images)
+
+# Python package vulnerabilities that have no fix available
+# (Document why these are acceptable and when they should be reviewed)
+
+# Example entries (remove these in actual use):
+# CVE-2023-12345  # Fixed in next version, low risk for our use case
+# CVE-2023-67890  # No fix available, mitigated by network controls

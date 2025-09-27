@@ -1,0 +1,65 @@
+# Blue-Green Deployment Configuration for Zero-Downtime Rollouts
+# This configuration provides a template for blue-green deployments
+
+version: '3.8'
+
+services:
+  # Blue environment (current production)
+  api-gateway-blue:
+    build: ./services/api-gateway
+    networks:
+      - podcast-network
+    environment:
+      - ENVIRONMENT=blue
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.deployment.environment=blue"
+      - "com.deployment.service=api-gateway"
+
+  # Green environment (new deployment)
+  api-gateway-green:
+    build: ./services/api-gateway
+    networks:
+      - podcast-network
+    environment:
+      - ENVIRONMENT=green
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.deployment.environment=green"
+      - "com.deployment.service=api-gateway"
+
+  # Load balancer for traffic switching
+  nginx-lb:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/nginx-blue-green.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - podcast-network
+    depends_on:
+      - api-gateway-blue
+    labels:
+      - "com.deployment.role=load-balancer"
+
+networks:
+  podcast-network:
+    external: true
+
+volumes:
+  storage_data:
+    external: true
