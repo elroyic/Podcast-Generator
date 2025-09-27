@@ -762,8 +762,34 @@ async def create_writer(
 # News Feeds API
 @app.get("/api/news-feeds", response_model=List[NewsFeedSchema])
 async def list_news_feeds(db: Session = Depends(get_db)):
-    """List all news feeds."""
-    return db.query(NewsFeed).all()
+    """List all news feeds with article_count per feed."""
+    from shared.models import Article
+    feeds = db.query(NewsFeed).all()
+    # Batch count per-feed
+    from collections import defaultdict
+    counts = defaultdict(int)
+    # Fetch counts in one query if possible
+    try:
+        from sqlalchemy import func
+        rows = (
+            db.query(Article.feed_id, func.count(Article.id))
+              .group_by(Article.feed_id)
+              .all()
+        )
+        for fid, cnt in rows:
+            counts[str(fid)] = int(cnt)
+    except Exception:
+        pass
+
+    out: List[NewsFeedSchema] = []
+    for f in feeds:
+        # Attach computed count
+        try:
+            setattr(f, 'article_count', counts.get(str(f.id), 0))
+        except Exception:
+            pass
+        out.append(f)
+    return out
 
 
 @app.post("/api/news-feeds", response_model=NewsFeedSchema)
