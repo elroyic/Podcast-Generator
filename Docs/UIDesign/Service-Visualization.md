@@ -215,7 +215,47 @@ This document defines how to visualize the 9 core services of the Podcast AI app
 - Quick action buttons
 - Performance metrics
 
-#### 3.2 Service Details Panel
+#### 3.2 AI Generation Workflow Visualization
+
+**Purpose**: Visualize the AI generation process for podcast groups and presenter personas
+
+**Visual Layout**:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AI Generation Workflow                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  [User Input] → [AI Processing] → [Content Generation] → [Review] │
+│       ↓              ↓                ↓              ↓          │
+│  [Category]    [LLM Analysis]   [Podcast Group]  [Validation]   │
+│  [Audience]    [Persona Gen]    [Presenter]      [Customize]    │
+│  [Style]       [Content Gen]    [Configuration]  [Deploy]       │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              Real-time Generation Status                │   │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐       │   │
+│  │  │ Step 1  │ │ Step 2  │ │ Step 3  │ │ Step 4  │       │   │
+│  │  │ Input   │ │ AI      │ │ Content │ │ Review  │       │   │
+│  │  │ ✓       │ │ ⚙️      │ │ ⏳      │ │ ⏸️      │       │   │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Workflow Steps**:
+1. **User Input**: Category, audience, style selection
+2. **AI Processing**: LLM analysis and persona generation
+3. **Content Generation**: Podcast group and presenter creation
+4. **Review & Customize**: Validation and customization options
+
+**Visual Elements**:
+- Animated progress indicators
+- Real-time status updates
+- Interactive step navigation
+- Generation quality metrics
+
+#### 3.3 Service Details Panel
 **Purpose**: Detailed view of individual service
 **Content**:
 - Service configuration
@@ -223,13 +263,47 @@ This document defines how to visualize the 9 core services of the Podcast AI app
 - Log entries
 - Control actions
 
-#### 3.3 Workflow Visualization
+#### 3.4 Workflow Visualization
 **Purpose**: Show end-to-end podcast generation process
 **Visual Elements**:
 - Animated workflow diagram
 - Progress indicators
 - Data flow arrows
 - Status updates
+
+#### 3.5 AI Generation Studio Interface
+
+**Purpose**: Dedicated interface for AI-powered content generation
+
+**Layout Structure**:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AI Generation Studio                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │   Generation    │  │    Progress     │  │    Results      │ │
+│  │    Controls     │  │   Tracking      │  │   Preview       │ │
+│  │                 │  │                 │  │                 │ │
+│  │ [Podcast Group] │  │ [Step 1: Input] │  │ [Generated      │ │
+│  │ [Presenter]     │  │ [Step 2: AI]    │  │  Content]       │ │
+│  │ [Configuration] │  │ [Step 3: Gen]   │  │ [Edit Options]  │ │
+│  │                 │  │ [Step 4: Review]│  │ [Save/Deploy]   │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              Generation History                         │   │
+│  │  [Recent Generations] [Search] [Filter] [Export]       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Features**:
+- **Generation Controls**: Type selection, parameters, customization
+- **Progress Tracking**: Real-time status, step indicators, time estimates
+- **Results Preview**: Generated content display, edit options, quality metrics
+- **History Management**: Past generations, search, filter, export capabilities
 
 ### 4. Performance Metrics
 

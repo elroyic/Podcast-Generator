@@ -258,6 +258,7 @@ services:
   podcast-host:
     build: ./services/podcast-host
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - LOCAL_STORAGE_PATH=/app/storage
       - LOCAL_SERVER_URL=http://nginx:8080
@@ -266,16 +267,22 @@ services:
         condition: service_healthy
     volumes:
       - ./services:/app/services
+      - ./shared:/app/shared
+      - storage_data:/app/storage
 
   # vLLM for high-performance LLM inference
   vllm:
     image: vllm/vllm-openai:latest
     ports:
       - "8020:8000"
-    environment:
-      - MODEL_NAME=Qwen2-0.5B
-      - HOST=0.0.0.0
-      - PORT=8000
+    command: [
+      "--model", "Qwen/Qwen2-0.5B",
+      "--host", "0.0.0.0",
+      "--port", "8000",
+      "--gpu-memory-utilization", "0.7",
+      "--max-model-len", "2048",
+      "--tensor-parallel-size", "1"
+    ]
     deploy:
       resources:
         limits:
@@ -296,13 +303,12 @@ services:
       - ollama_data:/root/.ollama
     environment:
       - OLLAMA_ORIGINS=*
+      - OLLAMA_GPU_LAYERS=0
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+        limits:
+          cpus: "5.0"
+          memory: "8G"
 
   # Celery Worker
   celery-worker:

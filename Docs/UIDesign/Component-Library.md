@@ -314,23 +314,351 @@ This document defines the reusable UI components for the Podcast AI futuristic i
 - Optimized spacing
 - Landscape orientation support
 
-### 10. Animation Guidelines
+### 10. AI Generation Components
 
-#### 10.1 Timing Functions
+#### 10.1 AI Generation Modal
+
+**Purpose**: Interface for generating podcast groups and presenter personas using AI
+
+**Visual Design**:
+- Dark modal overlay with neon border
+- Animated AI processing indicators
+- Step-by-step generation progress
+- Real-time generation status
+
+**Features**:
+- Podcast group generation with AI
+- Presenter persona creation
+- Category and topic selection
+- Generation progress tracking
+- Preview and customization options
+
+```html
+<div class="ai-generation-modal">
+  <div class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">🤖 AI Generation Studio</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      
+      <div class="generation-tabs">
+        <button class="tab-btn active" data-tab="group">Podcast Group</button>
+        <button class="tab-btn" data-tab="presenter">Presenter Persona</button>
+      </div>
+      
+      <div class="generation-content">
+        <!-- Group Generation Form -->
+        <div class="tab-content active" id="group-tab">
+          <div class="form-group">
+            <label>Category</label>
+            <select class="form-select">
+              <option>Technology</option>
+              <option>Business</option>
+              <option>Science</option>
+              <option>Entertainment</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Target Audience</label>
+            <input type="text" class="form-input" placeholder="e.g., Tech professionals, Students">
+          </div>
+          
+          <div class="form-group">
+            <label>Podcast Style</label>
+            <div class="style-options">
+              <label class="radio-option">
+                <input type="radio" name="style" value="informative">
+                <span>Informative</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="style" value="conversational">
+                <span>Conversational</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="style" value="entertaining">
+                <span>Entertaining</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Presenter Generation Form -->
+        <div class="tab-content" id="presenter-tab">
+          <div class="form-group">
+            <label>Presenter Type</label>
+            <select class="form-select">
+              <option>Host</option>
+              <option>Co-host</option>
+              <option>Expert</option>
+              <option>Interviewer</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Personality Traits</label>
+            <div class="trait-selector">
+              <button class="trait-chip" data-trait="enthusiastic">Enthusiastic</button>
+              <button class="trait-chip" data-trait="analytical">Analytical</button>
+              <button class="trait-chip" data-trait="humorous">Humorous</button>
+              <button class="trait-chip" data-trait="professional">Professional</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="generation-actions">
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary ai-generate-btn">
+          <span class="btn-icon">🤖</span>
+          Generate with AI
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+#### 10.2 AI Generation Progress
+
+**Purpose**: Show real-time progress of AI generation process
+
+**Visual Design**:
+- Animated progress bar with neon glow
+- Step-by-step indicators
+- AI processing animations
+- Generation status messages
+
+**States**:
+- **Initializing**: Setting up generation parameters
+- **Processing**: AI is generating content
+- **Reviewing**: Generated content is being validated
+- **Complete**: Generation finished successfully
+- **Error**: Generation failed with error message
+
+```html
+<div class="ai-generation-progress">
+  <div class="progress-header">
+    <h3>🤖 AI Generation in Progress</h3>
+    <span class="progress-status">Processing...</span>
+  </div>
+  
+  <div class="progress-steps">
+    <div class="step active">
+      <div class="step-icon">⚙️</div>
+      <div class="step-content">
+        <span class="step-title">Initializing</span>
+        <span class="step-description">Setting up generation parameters</span>
+      </div>
+    </div>
+    
+    <div class="step">
+      <div class="step-icon">🧠</div>
+      <div class="step-content">
+        <span class="step-title">AI Processing</span>
+        <span class="step-description">Generating content with AI</span>
+      </div>
+    </div>
+    
+    <div class="step">
+      <div class="step-icon">✅</div>
+      <div class="step-content">
+        <span class="step-title">Reviewing</span>
+        <span class="step-description">Validating generated content</span>
+      </div>
+    </div>
+  </div>
+  
+  <div class="progress-bar">
+    <div class="progress-fill" style="width: 45%"></div>
+  </div>
+  
+  <div class="generation-details">
+    <div class="detail-item">
+      <span class="detail-label">Estimated Time:</span>
+      <span class="detail-value">2-3 minutes</span>
+    </div>
+    <div class="detail-item">
+      <span class="detail-label">Current Step:</span>
+      <span class="detail-value">AI Processing</span>
+    </div>
+  </div>
+</div>
+```
+
+#### 10.3 AI Generation Results
+
+**Purpose**: Display and customize AI-generated content
+
+**Visual Design**:
+- Preview cards with generated content
+- Edit and customization options
+- Save and discard actions
+- Quality indicators
+
+**Content Types**:
+- **Podcast Group**: Name, description, category, schedule
+- **Presenter Persona**: Name, bio, personality, voice style
+- **Configuration**: Settings, preferences, customization
+
+```html
+<div class="ai-generation-results">
+  <div class="results-header">
+    <h3>✨ AI Generation Complete</h3>
+    <div class="quality-indicator">
+      <span class="quality-score">Quality: 95%</span>
+      <div class="quality-bar">
+        <div class="quality-fill" style="width: 95%"></div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="results-content">
+    <div class="result-card">
+      <div class="card-header">
+        <h4>Podcast Group</h4>
+        <button class="edit-btn">✏️ Edit</button>
+      </div>
+      
+      <div class="card-content">
+        <div class="field-group">
+          <label>Name</label>
+          <input type="text" value="Tech Talk Weekly" class="field-input">
+        </div>
+        
+        <div class="field-group">
+          <label>Description</label>
+          <textarea class="field-textarea">A weekly podcast covering the latest in technology, featuring expert interviews and industry insights.</textarea>
+        </div>
+        
+        <div class="field-group">
+          <label>Category</label>
+          <select class="field-select">
+            <option>Technology</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    
+    <div class="result-card">
+      <div class="card-header">
+        <h4>Presenter Persona</h4>
+        <button class="edit-btn">✏️ Edit</button>
+      </div>
+      
+      <div class="card-content">
+        <div class="field-group">
+          <label>Name</label>
+          <input type="text" value="Alex Chen" class="field-input">
+        </div>
+        
+        <div class="field-group">
+          <label>Bio</label>
+          <textarea class="field-textarea">Tech enthusiast with 10+ years in software development. Passionate about emerging technologies and their impact on society.</textarea>
+        </div>
+        
+        <div class="field-group">
+          <label>Personality</label>
+          <input type="text" value="Analytical, Enthusiastic, Professional" class="field-input">
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="results-actions">
+    <button class="btn-secondary">Regenerate</button>
+    <button class="btn-secondary">Save Draft</button>
+    <button class="btn-primary">Create & Deploy</button>
+  </div>
+</div>
+```
+
+#### 10.4 AI Generation History
+
+**Purpose**: Track and manage AI generation history
+
+**Visual Design**:
+- Timeline view of generations
+- Status indicators for each generation
+- Quick actions for regenerating or editing
+- Search and filter capabilities
+
+**Features**:
+- Generation timestamp and status
+- Content preview
+- Regeneration options
+- Export capabilities
+
+```html
+<div class="ai-generation-history">
+  <div class="history-header">
+    <h3>📚 Generation History</h3>
+    <div class="history-controls">
+      <input type="search" placeholder="Search generations..." class="search-input">
+      <select class="filter-select">
+        <option>All Types</option>
+        <option>Podcast Groups</option>
+        <option>Presenters</option>
+      </select>
+    </div>
+  </div>
+  
+  <div class="history-timeline">
+    <div class="timeline-item">
+      <div class="timeline-marker success"></div>
+      <div class="timeline-content">
+        <div class="item-header">
+          <span class="item-type">Podcast Group</span>
+          <span class="item-time">2 hours ago</span>
+        </div>
+        <div class="item-title">Tech Talk Weekly</div>
+        <div class="item-description">Technology podcast with expert interviews</div>
+        <div class="item-actions">
+          <button class="action-btn">View</button>
+          <button class="action-btn">Regenerate</button>
+          <button class="action-btn">Edit</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="timeline-item">
+      <div class="timeline-marker success"></div>
+      <div class="timeline-content">
+        <div class="item-header">
+          <span class="item-type">Presenter</span>
+          <span class="item-time">3 hours ago</span>
+        </div>
+        <div class="item-title">Alex Chen</div>
+        <div class="item-description">Tech enthusiast with analytical personality</div>
+        <div class="item-actions">
+          <button class="action-btn">View</button>
+          <button class="action-btn">Regenerate</button>
+          <button class="action-btn">Edit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+### 11. Animation Guidelines
+
+#### 11.1 Timing Functions
 
 - **Ease-out**: For entrances and appearances
 - **Ease-in**: For exits and disappearances
 - **Ease-in-out**: For state changes
 - **Linear**: For continuous animations
 
-#### 10.2 Duration Standards
+#### 11.2 Duration Standards
 
 - **Micro-interactions**: 150-300ms
 - **State changes**: 300-500ms
 - **Page transitions**: 500-800ms
 - **Loading animations**: 1000-2000ms
 
-#### 10.3 Performance Considerations
+#### 11.3 Performance Considerations
 
 - Use CSS transforms for animations
 - Avoid animating layout properties

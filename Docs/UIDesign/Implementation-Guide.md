@@ -91,7 +91,99 @@ podcast-ai-interface/
 
 ### 2. Core Components Implementation
 
-#### 2.1 Service Card Component
+#### 2.1 AI Generation Modal Component
+
+```jsx
+// components/ai-generation/AIGenerationModal.jsx
+import React, { useState, useEffect } from 'react';
+import './AIGenerationModal.css';
+
+const AIGenerationModal = ({ isOpen, onClose, onGenerate }) => {
+  const [activeTab, setActiveTab] = useState('group');
+  const [generationData, setGenerationData] = useState({
+    category: 'Technology',
+    audience: '',
+    style: 'informative',
+    presenterType: 'Host',
+    traits: []
+  });
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    setProgress(0);
+
+    try {
+      // Call AI generation API
+      const response = await fetch('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: activeTab,
+          data: generationData
+        })
+      });
+
+      const result = await response.json();
+      onGenerate(result);
+    } catch (error) {
+      console.error('Generation failed:', error);
+      setIsGenerating(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="ai-generation-modal">
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">🤖 AI Generation Studio</h2>
+            <button className="modal-close" onClick={onClose}>&times;</button>
+          </div>
+          
+          <div className="generation-tabs">
+            <button 
+              className={`tab-btn ${activeTab === 'group' ? 'active' : ''}`}
+              onClick={() => setActiveTab('group')}
+            >
+              Podcast Group
+            </button>
+            <button 
+              className={`tab-btn ${activeTab === 'presenter' ? 'active' : ''}`}
+              onClick={() => setActiveTab('presenter')}
+            >
+              Presenter Persona
+            </button>
+          </div>
+          
+          <div className="generation-content">
+            {/* Form content based on active tab */}
+          </div>
+          
+          <div className="generation-actions">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button 
+              className="btn-primary ai-generate-btn"
+              onClick={handleGenerate}
+              disabled={isGenerating}
+            >
+              <span className="btn-icon">🤖</span>
+              Generate with AI
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AIGenerationModal;
+```
+
+#### 2.2 Service Card Component
 
 ```jsx
 // components/dashboard/ServiceCard.jsx
@@ -924,6 +1016,29 @@ class ApiClient {
     });
   }
 
+  // AI Generation endpoints
+  async generatePodcastGroup(data) {
+    return this.request('/api/ai/generate-podcast-group', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async generatePresenterPersona(data) {
+    return this.request('/api/presenters/auto-generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getGenerationHistory() {
+    return this.request('/api/ai/generation-history');
+  }
+
+  async getGenerationStatus(generationId) {
+    return this.request(`/api/ai/generation-status/${generationId}`);
+  }
+
   // System endpoints
   async getSystemHealth() {
     return this.request('/api/health');
@@ -937,9 +1052,193 @@ class ApiClient {
 export default new ApiClient();
 ```
 
-### 6. Build Configuration
+### 6. AI Generation Integration
 
-#### 6.1 Webpack Configuration
+#### 6.1 AI Generation Hook
+
+```javascript
+// hooks/useAIGeneration.js
+import { useState, useEffect } from 'react';
+import { ApiClient } from '../utils/api';
+
+const useAIGeneration = () => {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState(null);
+  const [generationHistory, setGenerationHistory] = useState([]);
+  const [error, setError] = useState(null);
+
+  const generatePodcastGroup = async (data) => {
+    try {
+      setIsGenerating(true);
+      setError(null);
+      
+      const result = await ApiClient.generatePodcastGroup(data);
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const generatePresenterPersona = async (data) => {
+    try {
+      setIsGenerating(true);
+      setError(null);
+      
+      const result = await ApiClient.generatePresenterPersona(data);
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const getGenerationHistory = async () => {
+    try {
+      const history = await ApiClient.getGenerationHistory();
+      setGenerationHistory(history);
+      return history;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const getGenerationStatus = async (generationId) => {
+    try {
+      const status = await ApiClient.getGenerationStatus(generationId);
+      setGenerationStatus(status);
+      return status;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  return {
+    isGenerating,
+    generationStatus,
+    generationHistory,
+    error,
+    generatePodcastGroup,
+    generatePresenterPersona,
+    getGenerationHistory,
+    getGenerationStatus
+  };
+};
+
+export default useAIGeneration;
+```
+
+#### 6.2 AI Generation Context
+
+```javascript
+// context/AIGenerationContext.js
+import React, { createContext, useContext, useReducer } from 'react';
+
+const AIGenerationContext = createContext();
+
+const initialState = {
+  isGenerating: false,
+  currentGeneration: null,
+  generationHistory: [],
+  error: null,
+  progress: 0
+};
+
+const generationReducer = (state, action) => {
+  switch (action.type) {
+    case 'START_GENERATION':
+      return {
+        ...state,
+        isGenerating: true,
+        currentGeneration: action.payload,
+        progress: 0,
+        error: null
+      };
+    case 'UPDATE_PROGRESS':
+      return {
+        ...state,
+        progress: action.payload
+      };
+    case 'COMPLETE_GENERATION':
+      return {
+        ...state,
+        isGenerating: false,
+        currentGeneration: null,
+        progress: 100,
+        generationHistory: [action.payload, ...state.generationHistory]
+      };
+    case 'GENERATION_ERROR':
+      return {
+        ...state,
+        isGenerating: false,
+        error: action.payload,
+        progress: 0
+      };
+    case 'LOAD_HISTORY':
+      return {
+        ...state,
+        generationHistory: action.payload
+      };
+    default:
+      return state;
+  }
+};
+
+export const AIGenerationProvider = ({ children }) => {
+  const [state, dispatch] = useReducer(generationReducer, initialState);
+
+  const startGeneration = (generationData) => {
+    dispatch({ type: 'START_GENERATION', payload: generationData });
+  };
+
+  const updateProgress = (progress) => {
+    dispatch({ type: 'UPDATE_PROGRESS', payload: progress });
+  };
+
+  const completeGeneration = (result) => {
+    dispatch({ type: 'COMPLETE_GENERATION', payload: result });
+  };
+
+  const setError = (error) => {
+    dispatch({ type: 'GENERATION_ERROR', payload: error });
+  };
+
+  const loadHistory = (history) => {
+    dispatch({ type: 'LOAD_HISTORY', payload: history });
+  };
+
+  return (
+    <AIGenerationContext.Provider value={{
+      ...state,
+      startGeneration,
+      updateProgress,
+      completeGeneration,
+      setError,
+      loadHistory
+    }}>
+      {children}
+    </AIGenerationContext.Provider>
+  );
+};
+
+export const useAIGenerationContext = () => {
+  const context = useContext(AIGenerationContext);
+  if (!context) {
+    throw new Error('useAIGenerationContext must be used within AIGenerationProvider');
+  }
+  return context;
+};
+```
+
+### 7. Build Configuration
+
+#### 7.1 Webpack Configuration
 
 ```javascript
 // webpack.config.js
@@ -1026,7 +1325,7 @@ module.exports = {
 };
 ```
 
-#### 6.2 Package.json
+#### 7.2 Package.json
 
 ```json
 {
@@ -1069,9 +1368,9 @@ module.exports = {
 }
 ```
 
-### 7. Deployment Strategy
+### 8. Deployment Strategy
 
-#### 7.1 Docker Configuration
+#### 8.1 Docker Configuration
 
 ```dockerfile
 # Dockerfile
@@ -1092,7 +1391,7 @@ EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-#### 7.2 Nginx Configuration
+#### 8.2 Nginx Configuration
 
 ```nginx
 # nginx.conf
@@ -1151,9 +1450,9 @@ http {
 }
 ```
 
-### 8. Testing Strategy
+### 9. Testing Strategy
 
-#### 8.1 Unit Tests
+#### 9.1 Unit Tests
 
 ```javascript
 // __tests__/ServiceCard.test.js
@@ -1194,7 +1493,7 @@ describe('ServiceCard', () => {
 });
 ```
 
-#### 8.2 Integration Tests
+#### 9.2 Integration Tests
 
 ```javascript
 // __tests__/integration/Dashboard.test.js
@@ -1238,9 +1537,9 @@ describe('Dashboard Integration', () => {
 });
 ```
 
-### 9. Performance Optimization
+### 10. Performance Optimization
 
-#### 9.1 Code Splitting
+#### 10.1 Code Splitting
 
 ```javascript
 // Lazy loading components
@@ -1259,7 +1558,7 @@ function App() {
 }
 ```
 
-#### 9.2 Service Worker
+#### 10.2 Service Worker
 
 ```javascript
 // public/sw.js
@@ -1290,9 +1589,9 @@ self.addEventListener('fetch', (event) => {
 });
 ```
 
-### 10. Monitoring and Analytics
+### 11. Monitoring and Analytics
 
-#### 10.1 Performance Monitoring
+#### 11.1 Performance Monitoring
 
 ```javascript
 // utils/performance.js
@@ -1324,7 +1623,7 @@ class PerformanceMonitor {
 export default PerformanceMonitor;
 ```
 
-#### 10.2 Error Tracking
+#### 11.2 Error Tracking
 
 ```javascript
 // utils/errorTracking.js

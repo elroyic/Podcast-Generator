@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
@@ -93,15 +93,19 @@ def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
-    """Get current authenticated user from JWT token."""
-    if not credentials:
+def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+    """Get current authenticated user from JWT token (header or cookie)."""
+    token: Optional[str] = None
+    if credentials and getattr(credentials, 'credentials', None):
+        token = credentials.credentials
+    else:
+        # Fallback to cookie
+        token = request.cookies.get("access_token")
+    if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
-    payload = verify_jwt_token(credentials.credentials)
+    payload = verify_jwt_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
     return payload
 
 
@@ -143,22 +147,46 @@ async def call_service(service_name: str, method: str, endpoint: str, **kwargs) 
 
 # Authentication Endpoints
 @app.post("/api/auth/login")
-async def login(credentials: Dict[str, str] = Body(...)):
+async def login(credentials: Dict[str, str] = Body(...), request: Request = None):
     """Simple login endpoint - in production, validate against a user database."""
     username = credentials.get("username")
     password = credentials.get("password")
     
     # Simple hardcoded admin credentials (in production, use proper user management)
-    if username == "admin" and password == os.getenv("ADMIN_PASSWORD", "admin123"):
+    if username == "elroyic" and password == os.getenv("ADMIN_PASSWORD", "tunnels"):
         token = create_jwt_token(username)
-        return {
+        # Set cookie via response in frontend fetch handler
+        from fastapi.responses import JSONResponse
+        resp = JSONResponse({
             "access_token": token,
             "token_type": "bearer",
             "username": username,
-            "role": "admin"
-        }
+            "role": "elroyic"
+        })
+        # Cookie for HTML session auth
+        resp.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            max_age=JWT_EXPIRE_HOURS * 3600,
+            samesite="lax",
+            secure=False
+        )
+        return resp
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+# Admin Interface
+def require_html_auth(request: Request) -> Optional[RedirectResponse]:
+    token = request.cookies.get("access_token")
+    if not token:
+        return RedirectResponse(url="/login")
+    if not verify_jwt_token(token):
+        return RedirectResponse(url="/login")
+    return None
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.post("/api/auth/verify")
@@ -208,6 +236,8 @@ async def health_check():
 @app.get("/", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
     """Admin dashboard home page."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     
     # Get system stats
     total_groups = db.query(PodcastGroup).count()
@@ -284,6 +314,8 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
 @app.get("/groups", response_class=HTMLResponse)
 async def groups_page(request: Request):
     """Render the Podcast Groups management UI (data fetched client-side)."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     return templates.TemplateResponse("groups.html", {"request": request})
 
 
@@ -291,6 +323,8 @@ async def groups_page(request: Request):
 @app.get("/reviewer", response_class=HTMLResponse)
 async def reviewer_dashboard(request: Request):
     """Render the Reviewer Dashboard UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     return templates.TemplateResponse("reviewer-dashboard.html", {"request": request})
 
 
@@ -298,6 +332,8 @@ async def reviewer_dashboard(request: Request):
 @app.get("/presenters", response_class=HTMLResponse)
 async def presenter_management(request: Request):
     """Render the Presenter Management UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     return templates.TemplateResponse("presenter-management.html", {"request": request})
 
 
@@ -305,6 +341,8 @@ async def presenter_management(request: Request):
 @app.get("/episodes", response_class=HTMLResponse)
 async def episodes_page(request: Request):
     """Render the Episodes UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     return templates.TemplateResponse("episodes.html", {"request": request})
 
 
@@ -312,6 +350,8 @@ async def episodes_page(request: Request):
 @app.get("/news-feed", response_class=HTMLResponse)
 async def news_feed_dashboard(request: Request):
     """Render the News Feed Dashboard UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     return templates.TemplateResponse("news-feed-dashboard.html", {"request": request})
 
 
@@ -319,6 +359,8 @@ async def news_feed_dashboard(request: Request):
 @app.get("/collections", response_class=HTMLResponse)
 async def collections_dashboard(request: Request):
     """Render the Collections Dashboard UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     return templates.TemplateResponse("collections-dashboard.html", {"request": request})
 
 

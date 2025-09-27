@@ -190,6 +190,34 @@
         </div>
     </div>
 
+    <!-- Add Feed Modal -->
+    <div id="feed-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-lg">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 class="text-lg font-semibold">Add New RSS Feed</h3>
+                <button id="feed-modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <form id="feed-form" class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-700">Name (optional)</label>
+                    <input id="feed-name" class="mt-1 w-full border rounded px-3 py-2" placeholder="TechCrunch">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-700">Source URL</label>
+                    <input id="feed-url" class="mt-1 w-full border rounded px-3 py-2" placeholder="https://example.com/rss">
+                </div>
+                <div class="flex items-center">
+                    <input id="feed-active" type="checkbox" class="mr-2" checked>
+                    <label class="text-sm text-gray-700">Active</label>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" id="feed-btn-cancel" class="px-4 py-2 rounded border">Cancel</button>
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded">Add Feed</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
         let perfChartRef = null;
@@ -396,7 +424,9 @@
         }
 
         function addNewFeed() {
-            alert('Add New Feed functionality - to be implemented');
+            const modal = document.getElementById('feed-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
         }
 
         function viewFeedStats() {
@@ -440,6 +470,38 @@
             loadPerformance();
             document.getElementById('perf-range').addEventListener('change', (e) => {
                 loadPerformance(parseInt(e.target.value, 10));
+            });
+            // Modal wiring
+            document.addEventListener('click', (e) => {
+                const btn = e.target.closest('button');
+                if (!btn) return;
+                if (btn.id === 'feed-modal-close' || btn.id === 'feed-btn-cancel') {
+                    const modal = document.getElementById('feed-modal');
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                }
+            });
+            document.getElementById('feed-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const name = document.getElementById('feed-name').value;
+                const url = document.getElementById('feed-url').value;
+                const isActive = document.getElementById('feed-active').checked;
+                try {
+                    const res = await fetch('/api/news-feeds', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ source_url: url, name, type: 'rss', is_active: isActive })
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    // Close modal and refresh
+                    const modal = document.getElementById('feed-modal');
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                    await loadFeeds();
+                    alert('Feed added');
+                } catch (err) {
+                    alert('Failed to add feed: ' + err.message);
+                }
             });
         });
     </script>

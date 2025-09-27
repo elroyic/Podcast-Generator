@@ -148,6 +148,12 @@ This document defines the layout structure and navigation system for the Podcast
 │ 🔄 Workflow Monitor                                             │
 │ 📈 Performance Metrics                                          │
 │ ⚙️  Configuration                                               │
+│ ─────────────────────────────────────────────────────────────── │
+│ 🤖 AI Generation Studio                                         │
+│   ├─ 🎙️ Generate Podcast Group                                  │
+│   ├─ 👤 Generate Presenter                                      │
+│   └─ 📚 Generation History                                      │
+│ ─────────────────────────────────────────────────────────────── │
 │ 📋 Episode Management                                           │
 │ 🎙️  Podcast Groups                                              │
 │ 📰 News Feeds                                                   │
@@ -156,6 +162,7 @@ This document defines the layout structure and navigation system for the Podcast
 │ 🔍 Reviewers                                                    │
 │ 📚 Collections                                                  │
 │ 📤 Publishing                                                   │
+│ ─────────────────────────────────────────────────────────────── │
 │ 🚨 Alerts                                                       │
 │ 📊 Reports                                                      │
 │ ❓ Help                                                         │
@@ -181,8 +188,8 @@ This document defines the layout structure and navigation system for the Podcast
 **Bottom Navigation Bar**:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ [🏠] [📊] [🔄] [⚙️] [👤]                                      │
-│ Dashboard Status Workflow Settings Profile                     │
+│ [🏠] [📊] [🤖] [⚙️] [👤]                                      │
+│ Dashboard Status AI Studio Settings Profile                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -235,6 +242,12 @@ This document defines the layout structure and navigation system for the Podcast
 - Real-time progress indicators
 - Interactive service connections
 - Status flow visualization
+
+**AI Generation Section**:
+- AI Generation Studio interface
+- Real-time generation progress
+- Generated content preview
+- Generation history and management
 
 **Performance Metrics Section**:
 - Real-time charts and graphs

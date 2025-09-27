@@ -60,7 +60,10 @@ class VLLMClient:
         """Generate review using vLLM."""
         try:
             payload = {
-                "prompt": prompt,
+                "model": "Qwen/Qwen2-0.5B",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
                 "max_tokens": 800,
                 "temperature": 0.2,  # Lower temperature for more consistent results
                 "top_p": 0.7,
@@ -68,13 +71,13 @@ class VLLMClient:
             }
             
             response = await self.client.post(
-                f"{self.base_url}/generate",
+                f"{self.base_url}/v1/chat/completions",
                 json=payload
             )
             response.raise_for_status()
             
             result = response.json()
-            return result.get("text", "")
+            return result["choices"][0]["message"]["content"]
             
         except Exception as e:
             logger.error(f"Error generating review with vLLM: {e}")

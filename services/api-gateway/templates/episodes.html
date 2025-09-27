@@ -89,7 +89,30 @@
         </div>
     </div>
 
+    <!-- Generate Episode Modal -->
+    <div id="generate-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-md">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 class="text-lg font-semibold">Generate New Episode</h3>
+                <button id="gen-modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <form id="generate-form" class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-700">Podcast Group</label>
+                    <select id="gen-group" class="mt-1 w-full border rounded px-3 py-2"></select>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" id="gen-btn-cancel" class="px-4 py-2 rounded border">Cancel</button>
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded">Generate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => Array.from(document.querySelectorAll(s));
+
         async function loadEpisodes() {
             try {
                 const response = await fetch('/api/episodes-simple');
@@ -156,8 +179,32 @@
             loadEpisodes();
         }
 
+        function openGenerateModal() {
+            const modal = document.getElementById('generate-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeGenerateModal() {
+            const modal = document.getElementById('generate-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function populateGroups() {
+            try {
+                const res = await fetch('/api/podcast-groups');
+                const groups = await res.json();
+                const sel = document.getElementById('gen-group');
+                sel.innerHTML = groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+            } catch (e) {
+                console.error('Failed to load groups', e);
+            }
+        }
+
         function generateNewEpisode() {
-            alert('Generate New Episode functionality - to be implemented');
+            populateGroups();
+            openGenerateModal();
         }
 
         function exportEpisodes() {
@@ -178,6 +225,33 @@
 
         // Load episodes on page load
         document.addEventListener('DOMContentLoaded', loadEpisodes);
+
+        // Modal events
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            if (btn.id === 'gen-modal-close' || btn.id === 'gen-btn-cancel') {
+                closeGenerateModal();
+            }
+        });
+
+        document.getElementById('generate-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const groupId = document.getElementById('gen-group').value;
+            try {
+                const res = await fetch('/api/generate-episode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_id: groupId })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                closeGenerateModal();
+                alert('Episode generation queued');
+                loadEpisodes();
+            } catch (err) {
+                alert('Failed to queue generation: ' + err.message);
+            }
+        });
     </script>
 </body>
 </html>
