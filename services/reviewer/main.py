@@ -338,6 +338,10 @@ def queue_worker():
     logger.info("Queue worker started")
     r = redis.from_url(REDIS_URL)
     
+    # Create event loop for async operations
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     while queue_worker_running:
         try:
             # Get one item from the queue (blocking with timeout)
@@ -364,8 +368,8 @@ def queue_worker():
                     logger.error(f"Article not found for feed_id: {request.feed_id}")
                     continue
                 
-                # Process the review
-                result = article_reviewer.review_article(article)
+                # Process the review asynchronously
+                result = loop.run_until_complete(article_reviewer.review_article(article))
                 db.close()
                 
                 logger.info(f"Successfully processed queue item for feed {request.feed_id}")
@@ -383,6 +387,7 @@ def queue_worker():
             logger.error(f"Queue worker error: {e}")
             time.sleep(5)  # Wait before retrying
     
+    loop.close()
     logger.info("Queue worker stopped")
 
 def start_queue_worker():
