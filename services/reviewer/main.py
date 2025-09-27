@@ -170,7 +170,9 @@ class ArticleReviewer:
     
     async def review_article(
         self,
-        article: Article
+        article: Article,
+        reviewer_client: Optional[ReviewerClient] = None,
+        db: Optional[Session] = None
     ) -> Dict[str, Any]:
         """Two-tier review with Light/Heavy based on confidence threshold."""
         logger.info(f"Reviewing article: {article.title[:80]}...")
@@ -192,10 +194,13 @@ class ArticleReviewer:
             published=article.publish_date.isoformat() if article.publish_date else ""
         )
 
+        # Use provided client or default
+        client = reviewer_client or self.reviewer_client
+        
         # LIGHT pass
         t0 = datetime.utcnow()
         try:
-            light_result = await self.reviewer_client.generate_light_review(feed_request)
+            light_result = await client.generate_light_review(feed_request)
             review = self._convert_service_response_to_review(light_result, article.id, cfg.light_model)
             timings["light_ms"] = (datetime.utcnow() - t0).total_seconds() * 1000.0
             self._record_latency("light", timings["light_ms"]) 
@@ -218,7 +223,7 @@ class ArticleReviewer:
             while retries < 3:
                 t1 = datetime.utcnow()
                 try:
-                    heavy_result = await self.reviewer_client.generate_heavy_review(feed_request)
+                    heavy_result = await client.generate_heavy_review(feed_request)
                     review = self._convert_service_response_to_review(heavy_result, article.id, cfg.heavy_model)
                     timings["heavy_ms"] = (datetime.utcnow() - t1).total_seconds() * 1000.0
                     self._record_latency("heavy", timings["heavy_ms"]) 
@@ -368,8 +373,15 @@ def queue_worker():
                     logger.error(f"Article not found for feed_id: {request.feed_id}")
                     continue
                 
+                # Create a new reviewer client for this event loop
+                from services.reviewer.main import ReviewerClient
+                worker_reviewer_client = ReviewerClient()
+                
                 # Process the review asynchronously
-                result = loop.run_until_complete(article_reviewer.review_article(article))
+                result = loop.run_until_complete(article_reviewer.review_article(article, worker_reviewer_client, db))
+                
+                # Commit the review to database
+                db.commit()
                 db.close()
                 
                 logger.info(f"Successfully processed queue item for feed {request.feed_id}")
@@ -463,31 +475,13 @@ async def review_article(
     start_time = datetime.utcnow()
     
     try:
-        result = await article_reviewer.review_article(article)
+        result = await article_reviewer.review_article(article, db=db)
         review: ArticleReview = result["review"]
         reviewer_type: str = result["reviewer_type"]
         fallback_used: bool = result["fallback"]
         timings = result.get("timings", {})
-
-        # Persist review on Article (transactional: store once)
-        article.review_tags = review.tags
-        article.review_summary = review.summary
-        article.confidence = review.confidence
-        article.reviewer_type = reviewer_type
-        article.processed_at = datetime.utcnow()
-        # Compute fingerprint if missing
-        try:
-            if not getattr(article, "fingerprint", None):
-                import hashlib
-                pub_iso = article.publish_date.isoformat() if article.publish_date else ""
-                to_hash = f"{article.link}|{article.title}|{pub_iso}".encode("utf-8", errors="ignore")
-                article.fingerprint = hashlib.sha256(to_hash).hexdigest()
-        except Exception:
-            pass
-        # Store metadata
-        meta = dict(review.review_metadata or {})
-        meta.update({"fallback": fallback_used, "timings_ms": timings})
-        article.review_metadata = meta
+        
+        # Commit the review to database
         db.commit()
 
         processing_time = (datetime.utcnow() - start_time).total_seconds()
@@ -968,7 +962,7 @@ async def test_review(
             publish_date=datetime.utcnow()
         )
         
-        result = await article_reviewer.review_article(test_article)
+        result = await article_reviewer.review_article(test_article, db=db)
         review = result["review"]
         
         return {
@@ -995,7 +989,7 @@ async def review_article_background(article_id: UUID):
             logger.error(f"Article {article_id} not found for background review")
             return
         
-        result = await article_reviewer.review_article(article)
+        result = await article_reviewer.review_article(article, db=db)
         review: ArticleReview = result["review"]
         reviewer_type = result["reviewer_type"]
         logger.info(f"Background review completed for article {article_id}: {review.topic}/{review.subject} ({reviewer_type})")
