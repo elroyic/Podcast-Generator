@@ -47,6 +47,10 @@ celery.conf.beat_schedule = {
         "task": "app.tasks.create_collections_from_articles",
         "schedule": COLLECTION_BUILD_INTERVAL_MINUTES * 60.0,
     },
+    "update-collection-status": {
+        "task": "app.tasks.update_collection_status",
+        "schedule": 30 * 60.0,  # Every 30 minutes
+    },
     "send-articles-to-reviewer": {
         "task": "app.tasks.send_articles_to_reviewer",
         "schedule": REVIEW_DISPATCH_INTERVAL_MINUTES * 60.0,

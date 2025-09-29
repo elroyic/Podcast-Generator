@@ -58,6 +58,13 @@ class PresenterUpdate(PresenterBase):
 
 class Presenter(PresenterBase):
     id: UUID
+    status: Optional[str] = "active"
+    persona: Optional[str] = None
+    voice_model: Optional[str] = "vibevoice"
+    llm_model: Optional[str] = "gpt-oss-20b"
+    system_prompt: Optional[str] = None
+    review_count: Optional[int] = 0
+    last_review: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

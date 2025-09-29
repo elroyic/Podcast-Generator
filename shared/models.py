@@ -33,6 +33,13 @@ news_feed_assignment = Table(
     Column('feed_id', PGUUID(as_uuid=True), ForeignKey('news_feeds.id'), primary_key=True)
 )
 
+collection_group_assignment = Table(
+    'collection_group_assignment',
+    Base.metadata,
+    Column('collection_id', PGUUID(as_uuid=True), ForeignKey('collections.id'), primary_key=True),
+    Column('group_id', PGUUID(as_uuid=True), ForeignKey('podcast_groups.id'), primary_key=True)
+)
+
 episode_article_link = Table(
     'episode_article_link',
     Base.metadata,
@@ -81,6 +88,7 @@ class PodcastGroup(Base):
     episodes = relationship("Episode", back_populates="podcast_group")
     writer = relationship("Writer", back_populates="podcast_groups")
     news_feeds = relationship("NewsFeed", secondary=news_feed_assignment, back_populates="podcast_groups")
+    collections = relationship("Collection", secondary=collection_group_assignment, back_populates="podcast_groups")
 
 
 class Presenter(Base):
@@ -209,13 +217,14 @@ class Collection(Base):
     __tablename__ = "collections"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    group_id = Column(PGUUID(as_uuid=True), ForeignKey('podcast_groups.id'))
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
     status = Column(String(20), default='processing')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    podcast_group = relationship("PodcastGroup")
+    podcast_groups = relationship("PodcastGroup", secondary=collection_group_assignment, back_populates="collections")
     articles = relationship("Article", back_populates="collection")
 
 

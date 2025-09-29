@@ -12,7 +12,7 @@ from celery import current_task
 from sqlalchemy.orm import Session
 
 from shared.database import get_db_session
-from shared.models import PodcastGroup, NewsFeed, Article, Episode, EpisodeStatus, news_feed_assignment
+from shared.models import PodcastGroup, NewsFeed, Article, Episode, EpisodeStatus, news_feed_assignment, Collection
 from shared.schemas import GenerationRequest, GenerationResponse
 from .celery import celery
 from .services import EpisodeGenerationService, NewsFeedService, TextGenerationService, WriterService, PresenterService, PublishingService
@@ -311,68 +311,117 @@ def fetch_all_news_feeds():
 
 @celery.task
 def create_collections_from_articles():
-    """Create collections from unreviewed articles."""
+    """Create collections from reviewed articles."""
     try:
-        logger.info("Creating collections from articles")
+        logger.info("Creating collections from reviewed articles")
         
         db = get_db_session()
         try:
-            # Get all podcast groups
-            groups = db.query(PodcastGroup).filter(PodcastGroup.status == "active").all()
+            # Get reviewed articles that aren't already in collections
+            reviewed_articles = db.query(Article).filter(
+                Article.reviewer_type.isnot(None),  # Already reviewed
+                Article.collection_id.is_(None),    # Not yet in a collection
+                Article.confidence.isnot(None)      # Has confidence score
+            ).order_by(Article.processed_at.desc()).limit(50).all()
             
-            for group in groups:
-                try:
-                    # Get unreviewed articles for this group's feeds
-                    unreviewed_articles = db.query(Article).join(NewsFeed).filter(
-                        Article.reviewer_type.is_(None),  # Not yet reviewed
-                        NewsFeed.id.in_([
-                            row.feed_id for row in db.execute(
-                                news_feed_assignment.select().where(
-                                    news_feed_assignment.c.group_id == group.id
-                                )
-                            ).fetchall()
-                        ])
-                    ).limit(10).all()  # Limit to 10 articles per group
+            if len(reviewed_articles) >= 3:  # Minimum threshold
+                # Group articles by topic/theme for better collections
+                articles_by_topic = {}
+                for article in reviewed_articles:
+                    # Use reviewer tags to group articles
+                    tags = article.review_tags or ["general"]
+                    primary_tag = tags[0] if tags else "general"
                     
-                    if len(unreviewed_articles) >= 3:  # Minimum threshold
-                        # Create collection via Collections service
-                        async def create_collection():
-                            async with httpx.AsyncClient() as client:
-                                collection_data = {
-                                    "group_id": str(group.id),
-                                    "status": "building",
-                                    "metadata": {
-                                        "source": "auto_created",
-                                        "article_count": len(unreviewed_articles)
-                                    }
-                                }
+                    if primary_tag not in articles_by_topic:
+                        articles_by_topic[primary_tag] = []
+                    articles_by_topic[primary_tag].append(article)
+                
+                # Check for existing collections and add articles to them, or create new ones
+                for topic, articles in articles_by_topic.items():
+                    if len(articles) >= 3:  # Minimum articles per collection
+                        try:
+                            # Check if we already have a collection for this topic
+                            existing_collection = db.query(Collection).filter(
+                                Collection.name == f"Auto Collection: {topic.title()}"
+                            ).first()
+                            
+                            if existing_collection:
+                                # Add articles to existing collection
+                                for article in articles:
+                                    article.collection_id = existing_collection.id
+                                db.commit()
+                                logger.info(f"Added {len(articles)} articles to existing collection {existing_collection.id} for topic '{topic}'")
+                            else:
+                                # Create new collection
+                                async def create_collection():
+                                    async with httpx.AsyncClient() as client:
+                                        collection_data = {
+                                            "name": f"Auto Collection: {topic.title()}",
+                                            "description": f"Automatically created collection of {topic} articles",
+                                            "group_ids": [],  # Independent collection
+                                            "status": "building"
+                                        }
+                                        
+                                        response = await client.post(
+                                            "http://collections:8011/collections",
+                                            json=collection_data
+                                        )
+                                        response.raise_for_status()
+                                        collection = response.json()
+                                        
+                                        # Add articles to collection by updating their collection_id
+                                        for article in articles:
+                                            article.collection_id = UUID(collection['collection']['collection_id'])
+                                        
+                                        db.commit()
+                                        
+                                        logger.info(f"Created collection {collection['collection']['collection_id']} for topic '{topic}' with {len(articles)} articles")
                                 
-                                response = await client.post(
-                                    "http://collections:8011/collections",
-                                    json=collection_data
-                                )
-                                response.raise_for_status()
-                                collection = response.json()
-                                
-                                # Add articles to collection
-                                for article in unreviewed_articles:
-                                    await client.post(
-                                        f"http://collections:8011/collections/{collection['collection']['collection_id']}/feeds/{article.id}"
-                                    )
-                                
-                                logger.info(f"Created collection {collection['collection']['collection_id']} for group {group.id} with {len(unreviewed_articles)} articles")
-                        
-                        import asyncio
-                        asyncio.run(create_collection())
-                        
-                except Exception as e:
-                    logger.error(f"Error creating collection for group {group.id}: {e}")
+                                import asyncio
+                                asyncio.run(create_collection())
+                            
+                        except Exception as e:
+                            logger.error(f"Error creating/updating collection for topic {topic}: {e}")
+            else:
+                logger.info(f"Not enough reviewed articles to create collections (need 3+, have {len(reviewed_articles)})")
                     
         finally:
             db.close()
             
     except Exception as e:
         logger.error(f"Error in create_collections_from_articles task: {e}")
+
+
+@celery.task
+def update_collection_status():
+    """Update collection status from building to ready when they have enough articles."""
+    try:
+        logger.info("Updating collection status")
+        
+        db = get_db_session()
+        try:
+            # Get collections that are in building status
+            building_collections = db.query(Collection).filter(
+                Collection.status == "building"
+            ).all()
+            
+            for collection in building_collections:
+                # Count articles in this collection
+                article_count = db.query(Article).filter(Article.collection_id == collection.id).count()
+                
+                # If collection has enough articles, mark it as ready
+                if article_count >= 3:  # Minimum threshold for ready status
+                    collection.status = "ready"
+                    db.commit()
+                    logger.info(f"Updated collection {collection.id} ({collection.name}) to ready status with {article_count} articles")
+                else:
+                    logger.info(f"Collection {collection.id} ({collection.name}) still building with {article_count} articles")
+                    
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error in update_collection_status task: {e}")
 
 
 @celery.task

@@ -33,7 +33,8 @@ LIGHT_REVIEWER_URL = os.getenv("LIGHT_REVIEWER_URL", "http://light-reviewer:8000
 HEAVY_REVIEWER_URL = os.getenv("HEAVY_REVIEWER_URL", "http://heavy-reviewer:8000")
 
 # Reviewer defaults (can be overridden via Redis config)
-DEFAULT_CONF_THRESHOLD = float(os.getenv("REVIEWER_CONF_THRESHOLD", "0.85"))
+DEFAULT_CONF_THRESHOLD = float(os.getenv("REVIEWER_CONF_THRESHOLD", "0.4"))  # Light reviewer threshold
+DEFAULT_HEAVY_CONF_THRESHOLD = float(os.getenv("REVIEWER_HEAVY_CONF_THRESHOLD", "0.7"))  # Heavy reviewer threshold
 DEFAULT_LIGHT_MODEL = os.getenv("REVIEWER_LIGHT_MODEL", "qwen2:0.5b")
 DEFAULT_HEAVY_MODEL = os.getenv("REVIEWER_HEAVY_MODEL", "qwen3:4b")
 DEFAULT_HEAVY_ENABLED = os.getenv("REVIEWER_HEAVY_ENABLED", "true").lower() == "true"
@@ -67,7 +68,8 @@ class ReviewResponse(BaseModel):
 
 
 class ReviewerConfig(BaseModel):
-    conf_threshold: float = Field(default=DEFAULT_CONF_THRESHOLD, ge=0.0, le=1.0)
+    conf_threshold: float = Field(default=DEFAULT_CONF_THRESHOLD, ge=0.0, le=1.0)  # Light reviewer threshold
+    heavy_conf_threshold: float = Field(default=DEFAULT_HEAVY_CONF_THRESHOLD, ge=0.0, le=1.0)  # Heavy reviewer threshold
     heavy_enabled: bool = Field(default=DEFAULT_HEAVY_ENABLED)
     light_model: str = Field(default=DEFAULT_LIGHT_MODEL)
     heavy_model: str = Field(default=DEFAULT_HEAVY_MODEL)
@@ -214,8 +216,8 @@ class ArticleReviewer:
             self._record_latency("light", timings["light_ms"]) 
             self._record_confidence(review.confidence)
 
-        # Route to HEAVY if enabled and below threshold
-        if cfg.heavy_enabled and (review.confidence < cfg.conf_threshold):
+        # Route to HEAVY if enabled and below heavy threshold
+        if cfg.heavy_enabled and (review.confidence < cfg.heavy_conf_threshold):
             reviewer_type = "heavy"
             model_used = cfg.heavy_model
             retries = 0
@@ -291,12 +293,14 @@ class ArticleReviewer:
         try:
             cfg_map = self.redis.hgetall(self.config_key) or {}
             conf_threshold = float(cfg_map.get("conf_threshold", DEFAULT_CONF_THRESHOLD))
+            heavy_conf_threshold = float(cfg_map.get("heavy_conf_threshold", DEFAULT_HEAVY_CONF_THRESHOLD))
             heavy_enabled = str(cfg_map.get("heavy_enabled", str(DEFAULT_HEAVY_ENABLED))).lower() in ("1", "true", "yes")
             light_model = cfg_map.get("light_model", DEFAULT_LIGHT_MODEL)
             heavy_model = cfg_map.get("heavy_model", DEFAULT_HEAVY_MODEL)
             light_workers = int(cfg_map.get("light_workers", 1))
             return ReviewerConfig(
                 conf_threshold=conf_threshold,
+                heavy_conf_threshold=heavy_conf_threshold,
                 heavy_enabled=heavy_enabled,
                 light_model=light_model,
                 heavy_model=heavy_model,
@@ -323,7 +327,7 @@ class ArticleReviewer:
     def _record_confidence(self, confidence: float) -> None:
         try:
             bucket = max(0, min(19, int(confidence / 0.05)))
-            bucket_label = f"{bucket*0.05:.2f}-{(bucket+1)*0.05:.2f}"
+            bucket_label = f"bucket_{bucket}"
             self.redis.hincrby(self.conf_hist, bucket_label, 1)
         except Exception:
             pass
@@ -379,6 +383,14 @@ def queue_worker():
                 
                 # Process the review asynchronously
                 result = loop.run_until_complete(article_reviewer.review_article(article, worker_reviewer_client, db))
+                
+                # Update article with review results
+                review = result["review"]
+                article.review_tags = review.tags
+                article.review_summary = review.summary
+                article.confidence = review.confidence
+                article.reviewer_type = result["reviewer_type"]
+                article.processed_at = datetime.utcnow()
                 
                 # Commit the review to database
                 db.commit()
@@ -481,6 +493,13 @@ async def review_article(
         fallback_used: bool = result["fallback"]
         timings = result.get("timings", {})
         
+        # Update article with review results
+        article.review_tags = review.tags
+        article.review_summary = review.summary
+        article.confidence = review.confidence
+        article.reviewer_type = reviewer_type
+        article.processed_at = datetime.utcnow()
+        
         # Commit the review to database
         db.commit()
 
@@ -509,8 +528,8 @@ async def review_feed(request: FeedReviewRequest):
         light_result = await article_reviewer.reviewer_client.generate_light_review(request)
         confidence = light_result.get("confidence", 0.0)
         
-        # Use heavy reviewer if confidence is below threshold and heavy is enabled
-        if cfg.heavy_enabled and confidence < cfg.conf_threshold:
+        # Use heavy reviewer if confidence is below heavy threshold and heavy is enabled
+        if cfg.heavy_enabled and confidence < cfg.heavy_conf_threshold:
             try:
                 heavy_result = await article_reviewer.reviewer_client.generate_heavy_review(request)
                 return {
@@ -554,6 +573,7 @@ async def put_config(cfg: ReviewerConfig):
     try:
         r.hset(article_reviewer.config_key, mapping={
             "conf_threshold": cfg.conf_threshold,
+            "heavy_conf_threshold": cfg.heavy_conf_threshold,
             "heavy_enabled": int(cfg.heavy_enabled),
             "light_model": cfg.light_model,
             "heavy_model": cfg.heavy_model,

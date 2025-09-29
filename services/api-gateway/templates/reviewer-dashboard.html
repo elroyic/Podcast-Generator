@@ -127,11 +127,17 @@
             <!-- Configuration Panel -->
             <div class="bg-white shadow rounded-lg p-6 mb-8">
                 <h3 class="text-lg font-medium text-gray-900 mb-4">Current Configuration</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700">Confidence Threshold</label>
+                        <label class="block text-sm font-medium text-gray-700">Light Threshold</label>
                         <div class="mt-1">
-                            <span id="conf-threshold" class="text-lg font-semibold">0.85</span>
+                            <span id="conf-threshold" class="text-lg font-semibold">0.40</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Heavy Threshold</label>
+                        <div class="mt-1">
+                            <span id="heavy-conf-threshold" class="text-lg font-semibold">0.70</span>
                         </div>
                     </div>
                     <div>
@@ -176,11 +182,21 @@
             </div>
             <form id="settings-form" class="p-4 space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Confidence Threshold</label>
-                    <input type="range" id="conf-threshold-slider" min="0" max="1" step="0.01" value="0.85" class="mt-1 w-full">
+                    <label class="block text-sm font-medium text-gray-700">Light Reviewer Threshold</label>
+                    <input type="range" id="conf-threshold-slider" min="0" max="1" step="0.01" value="0.40" class="mt-1 w-full">
                     <div class="flex justify-between text-xs text-gray-500">
                         <span>0.00</span>
-                        <span id="threshold-value">0.85</span>
+                        <span id="threshold-value">0.40</span>
+                        <span>1.00</span>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Heavy Reviewer Threshold</label>
+                    <input type="range" id="heavy-conf-threshold-slider" min="0" max="1" step="0.01" value="0.70" class="mt-1 w-full">
+                    <div class="flex justify-between text-xs text-gray-500">
+                        <span>0.00</span>
+                        <span id="heavy-threshold-value">0.70</span>
                         <span>1.00</span>
                     </div>
                 </div>
@@ -265,6 +281,7 @@
 
                 // Update configuration display
                 $('#conf-threshold').textContent = config.conf_threshold.toFixed(2);
+                $('#heavy-conf-threshold').textContent = config.heavy_conf_threshold.toFixed(2);
                 $('#heavy-enabled').textContent = config.heavy_enabled ? 'Enabled' : 'Disabled';
                 $('#light-model').textContent = config.light_model;
                 $('#heavy-model').textContent = config.heavy_model;
@@ -380,6 +397,8 @@
                 const config = await fetch('/api/reviewer/config').then(r => r.json());
                 $('#conf-threshold-slider').value = config.conf_threshold;
                 $('#threshold-value').textContent = config.conf_threshold.toFixed(2);
+                $('#heavy-conf-threshold-slider').value = config.heavy_conf_threshold;
+                $('#heavy-threshold-value').textContent = config.heavy_conf_threshold.toFixed(2);
                 $('#heavy-enabled-checkbox').checked = config.heavy_enabled;
                 $('#light-model-select').value = config.light_model;
                 $('#heavy-model-select').value = config.heavy_model;
@@ -393,6 +412,7 @@
         async function saveConfiguration() {
             const config = {
                 conf_threshold: parseFloat($('#conf-threshold-slider').value),
+                heavy_conf_threshold: parseFloat($('#heavy-conf-threshold-slider').value),
                 heavy_enabled: $('#heavy-enabled-checkbox').checked,
                 light_model: $('#light-model-select').value,
                 heavy_model: $('#heavy-model-select').value,
@@ -452,6 +472,10 @@
 
         $('#conf-threshold-slider').addEventListener('input', (e) => {
             $('#threshold-value').textContent = parseFloat(e.target.value).toFixed(2);
+        });
+
+        $('#heavy-conf-threshold-slider').addEventListener('input', (e) => {
+            $('#heavy-threshold-value').textContent = parseFloat(e.target.value).toFixed(2);
         });
 
         // Initialize dashboard

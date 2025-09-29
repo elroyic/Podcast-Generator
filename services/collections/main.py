@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from shared.database import get_db, create_tables
+from shared.database import get_db, get_db_session, create_tables
 from shared.models import Article, NewsFeed, PodcastGroup, Collection as DBCollection
 
 # Configure logging
@@ -40,7 +40,9 @@ class CollectionItem(BaseModel):
 class CollectionDTO(BaseModel):
     """A collection of related content."""
     collection_id: str
-    group_id: str
+    name: str
+    description: Optional[str] = None
+    group_ids: List[str] = Field(default_factory=list)  # Podcast groups assigned to this collection
     status: str  # "building", "ready", "used", "expired"
     items: List[CollectionItem]
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -51,7 +53,9 @@ class CollectionDTO(BaseModel):
 
 class CollectionCreate(BaseModel):
     """Request to create a new collection."""
-    group_id: str
+    name: str
+    description: Optional[str] = None
+    group_ids: List[str] = Field(default_factory=list)  # Optional podcast groups to assign
     priority_tags: List[str] = Field(default_factory=list)
     max_items: int = 10
 
@@ -75,17 +79,96 @@ class CollectionsManager:
         self.reviewer_client = httpx.AsyncClient(timeout=30.0)
         # In-memory store for active collections
         self.collections: Dict[str, CollectionDTO] = {}
+        # Load existing collections from database on startup
+        self._load_collections_from_db()
+    
+    def _load_collections_from_db(self):
+        """Load existing collections from database on startup."""
+        try:
+            db = get_db_session()
+            try:
+                db_collections = db.query(DBCollection).all()
+                for db_collection in db_collections:
+                    # Get articles for this collection
+                    articles = db.query(Article).filter(Article.collection_id == db_collection.id).all()
+                    
+                    # Create collection items from articles
+                    items = []
+                    for article in articles:
+                        feed_item = CollectionItem(
+                            item_id=str(article.id),
+                            item_type="feed",
+                            content={
+                                "title": article.title,
+                                "link": article.link,
+                                "summary": article.summary,
+                                "content": article.content,
+                                "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+                                "source": article.news_feed.name if article.news_feed else "Unknown"
+                            },
+                            created_at=article.created_at,
+                            metadata={
+                                "article_id": str(article.id),
+                                "feed_id": str(article.feed_id)
+                            }
+                        )
+                        items.append(feed_item)
+                    
+                    # Create CollectionDTO
+                    collection = CollectionDTO(
+                        collection_id=str(db_collection.id),
+                        name=db_collection.name,
+                        description=db_collection.description,
+                        group_ids=[str(group.id) for group in db_collection.podcast_groups],
+                        status=db_collection.status,
+                        items=items,
+                        metadata={
+                            "min_feeds_required": MIN_FEEDS_PER_COLLECTION,
+                            "loaded_from_db": True
+                        },
+                        created_at=db_collection.created_at or datetime.utcnow(),
+                        updated_at=db_collection.updated_at or datetime.utcnow(),
+                        expires_at=datetime.utcnow() + timedelta(hours=COLLECTION_TTL_HOURS)
+                    )
+                    
+                    # Auto-mark as ready if it has enough feeds
+                    feed_count = len([item for item in items if item.item_type == "feed"])
+                    if feed_count >= MIN_FEEDS_PER_COLLECTION and collection.status == "building":
+                        collection.status = "ready"
+                        # Update database
+                        db_collection.status = "ready"
+                        db.commit()
+                        logger.info(f"Auto-marked collection {collection.collection_id} as ready with {feed_count} feeds")
+                    
+                    self.collections[collection.collection_id] = collection
+                
+                logger.info(f"Loaded {len(self.collections)} collections from database")
+                
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Error loading collections from database: {e}")
     
     async def create_collection(self, request: CollectionCreate, db: Session) -> CollectionDTO:
-        """Create a new collection for a podcast group."""
+        """Create a new collection."""
         # Create collection in database
         db_collection = DBCollection(
-            group_id=UUID(request.group_id),
+            name=request.name,
+            description=request.description,
             status="building"
         )
         db.add(db_collection)
         db.commit()
         db.refresh(db_collection)
+        
+        # Assign to podcast groups if specified
+        if request.group_ids:
+            for group_id in request.group_ids:
+                group = db.query(PodcastGroup).filter(PodcastGroup.id == UUID(group_id)).first()
+                if group:
+                    db_collection.podcast_groups.append(group)
+            db.commit()
+            db.refresh(db_collection)
         
         # Create Pydantic model for response
         now = datetime.utcnow()
@@ -93,7 +176,9 @@ class CollectionsManager:
         updated_at = db_collection.updated_at or created_at
         collection = CollectionDTO(
             collection_id=str(db_collection.id),
-            group_id=str(db_collection.group_id),
+            name=db_collection.name,
+            description=db_collection.description,
+            group_ids=[str(group.id) for group in db_collection.podcast_groups],
             status=db_collection.status,
             items=[],
             metadata={
@@ -108,7 +193,7 @@ class CollectionsManager:
         # Store in-memory representation
         self.collections[collection.collection_id] = collection
         
-        logger.info(f"Created collection {collection.collection_id} for group {request.group_id}")
+        logger.info(f"Created collection {collection.collection_id} for groups {request.group_ids}")
         
         return collection
     
@@ -150,6 +235,13 @@ class CollectionsManager:
             await self._auto_review_feed(collection_id, feed_item)
         except Exception as e:
             logger.warning(f"Auto-review failed for feed {feed_item.item_id}: {e}")
+        
+        # Auto-mark collection as ready if it now has enough feeds
+        feed_count = len([item for item in collection.items if item.item_type == "feed"])
+        if feed_count >= MIN_FEEDS_PER_COLLECTION and collection.status == "building":
+            collection.status = "ready"
+            collection.updated_at = datetime.utcnow()
+            logger.info(f"Auto-marked collection {collection_id} as ready with {feed_count} feeds")
         
         logger.info(f"Added feed to collection {collection_id}: {article.title[:50]}...")
         return True

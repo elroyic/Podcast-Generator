@@ -16,6 +16,8 @@ from sqlalchemy import and_
 import os
 import hashlib
 import redis
+import re
+from bs4 import BeautifulSoup
 
 from shared.database import get_db, create_tables
 from shared.models import NewsFeed, Article, FeedType
@@ -45,6 +47,75 @@ class NewsFeedProcessor:
     """Handles RSS feed processing and article extraction."""
     
     @staticmethod
+    async def fetch_full_article_content(article_url: str) -> str:
+        """Fetch full article content from the article URL."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                # Add headers to appear as a regular browser
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                }
+                
+                response = await client.get(article_url, headers=headers)
+                response.raise_for_status()
+                
+                # Parse HTML content
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Remove script and style elements
+                for script in soup(["script", "style", "nav", "footer", "aside", "header"]):
+                    script.decompose()
+                
+                # Try to find the main article content
+                article_content = ""
+                
+                # Common selectors for article content
+                content_selectors = [
+                    'article',
+                    '.article-content',
+                    '.post-content',
+                    '.entry-content',
+                    '.content',
+                    '.story-content',
+                    '.article-body',
+                    '.post-body',
+                    '[role="main"]',
+                    'main',
+                    '.main-content'
+                ]
+                
+                for selector in content_selectors:
+                    content_elem = soup.select_one(selector)
+                    if content_elem:
+                        article_content = content_elem.get_text(separator=' ', strip=True)
+                        break
+                
+                # If no specific content found, try to get body text
+                if not article_content:
+                    body = soup.find('body')
+                    if body:
+                        article_content = body.get_text(separator=' ', strip=True)
+                
+                # Clean up the content
+                if article_content:
+                    # Remove extra whitespace
+                    article_content = re.sub(r'\s+', ' ', article_content)
+                    # Limit content length to prevent extremely long articles
+                    if len(article_content) > 10000:
+                        article_content = article_content[:10000] + "..."
+                
+                return article_content
+                
+        except Exception as e:
+            logger.warning(f"Error fetching full content from {article_url}: {e}")
+            return ""
+    
+    @staticmethod
     async def fetch_rss_feed(feed_url: str) -> List[dict]:
         """Fetch and parse RSS feed."""
         try:
@@ -57,11 +128,28 @@ class NewsFeedProcessor:
                 
                 articles = []
                 for entry in parsed.entries:
+                    # Get basic article info
+                    title = entry.get("title", "")
+                    link = entry.get("link", "")
+                    summary = entry.get("summary", "") or entry.get("description", "")
+                    rss_content = entry.get("content", [{}])[0].get("value", "") if entry.get("content") else ""
+                    
+                    # If we have a link but limited content, try to fetch full content
+                    full_content = rss_content
+                    if link and (not rss_content or len(rss_content) < 500):
+                        try:
+                            full_content = await NewsFeedProcessor.fetch_full_article_content(link)
+                            if full_content and len(full_content) > len(rss_content):
+                                logger.info(f"Fetched full content for {title[:50]}... ({len(full_content)} chars)")
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch full content for {link}: {e}")
+                            full_content = rss_content
+                    
                     article = {
-                        "title": entry.get("title", ""),
-                        "link": entry.get("link", ""),
-                        "summary": entry.get("summary", "") or entry.get("description", ""),
-                        "content": entry.get("content", [{}])[0].get("value", "") if entry.get("content") else "",
+                        "title": title,
+                        "link": link,
+                        "summary": summary,
+                        "content": full_content,
                         "publish_date": None
                     }
                     

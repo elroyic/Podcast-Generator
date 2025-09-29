@@ -938,6 +938,36 @@ async def get_reviewer_metrics():
     return await call_service("reviewer", "GET", "/metrics")
 
 
+@app.get("/api/reviewer/queue/status")
+async def get_reviewer_queue_status():
+    """Get reviewer queue status and worker information."""
+    try:
+        queue_status = await call_service("reviewer", "GET", "/queue/status")
+        worker_status = await call_service("reviewer", "GET", "/queue/worker/status")
+        
+        return {
+            "queue_length": queue_status.get("queue_length", 0),
+            "estimated_processing_time_minutes": queue_status.get("estimated_processing_time_minutes", 0),
+            "preview_items": queue_status.get("preview_items", []),
+            "status": queue_status.get("status", "unknown"),
+            "worker_status": worker_status.get("status", "unknown"),
+            "worker_running": worker_status.get("worker_running", False),
+            "thread_alive": worker_status.get("thread_alive", False)
+        }
+    except Exception as e:
+        logger.error(f"Error getting reviewer queue status: {e}")
+        return {
+            "queue_length": 0,
+            "estimated_processing_time_minutes": 0,
+            "preview_items": [],
+            "status": "error",
+            "worker_status": "unknown",
+            "worker_running": False,
+            "thread_alive": False,
+            "error": str(e)
+        }
+
+
 @app.post("/api/reviewer/scale/light")
 async def scale_light_reviewer(workers: int = Body(embed=True, default=1)):
     """Scale light reviewer workers and apply Docker scaling."""
@@ -1317,15 +1347,18 @@ async def get_collections_stats(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error getting collections stats: {e}")
         # Fallback to database query
-        from shared.models import Article
+        from shared.models import Article, Collection
         
-        # Get total articles (collections are managed by the service)
+        # Get collections stats from database
+        total_collections = db.query(Collection).count()
+        ready_collections = db.query(Collection).filter(Collection.status == "ready").count()
+        processing_collections = db.query(Collection).filter(Collection.status.in_(["building", "processing"])).count()
         total_articles = db.query(Article).count()
         
         return {
-            "total_collections": 0,
-            "ready_collections": 0,
-            "processing_collections": 0,
+            "total_collections": total_collections,
+            "ready_collections": ready_collections,
+            "processing_collections": processing_collections,
             "total_articles": total_articles
         }
 
@@ -1339,20 +1372,18 @@ async def list_collections(db: Session = Depends(get_db)):
     
     result = []
     for collection in collections:
-        # Get group name
-        group_name = "Unknown Group"
-        if collection.group_id:
-            group = db.query(PodcastGroup).filter(PodcastGroup.id == collection.group_id).first()
-            if group:
-                group_name = group.name
+        # Get group names
+        group_names = [group.name for group in collection.podcast_groups] if collection.podcast_groups else []
         
         # Get article count
         article_count = db.query(Article).filter(Article.collection_id == collection.id).count()
         
         result.append({
             "id": str(collection.id),
-            "group_id": str(collection.group_id) if collection.group_id else None,
-            "group_name": group_name,
+            "name": collection.name,
+            "description": collection.description,
+            "group_ids": [str(group.id) for group in collection.podcast_groups],
+            "group_names": group_names,
             "status": collection.status,
             "article_count": article_count,
             "created_at": collection.created_at.isoformat() if collection.created_at else None,
@@ -1371,12 +1402,8 @@ async def get_collection(collection_id: UUID, db: Session = Depends(get_db)):
     if not collection:
         raise HTTPException(status_code=404, detail="Collection not found")
     
-    # Get group name
-    group_name = "Unknown Group"
-    if collection.group_id:
-        group = db.query(PodcastGroup).filter(PodcastGroup.id == collection.group_id).first()
-        if group:
-            group_name = group.name
+    # Get group names
+    group_names = [group.name for group in collection.podcast_groups] if collection.podcast_groups else []
     
     # Get articles
     articles = db.query(Article).filter(Article.collection_id == collection.id).all()
@@ -1397,8 +1424,10 @@ async def get_collection(collection_id: UUID, db: Session = Depends(get_db)):
     
     return {
         "id": str(collection.id),
-        "group_id": str(collection.group_id) if collection.group_id else None,
-        "group_name": group_name,
+        "name": collection.name,
+        "description": collection.description,
+        "group_ids": [str(group.id) for group in collection.podcast_groups],
+        "group_names": group_names,
         "status": collection.status,
         "created_at": collection.created_at.isoformat() if collection.created_at else None,
         "updated_at": collection.updated_at.isoformat() if collection.updated_at else None,
@@ -1414,28 +1443,40 @@ async def create_collection(
     """Create a new collection."""
     from shared.models import Collection, PodcastGroup
     
-    # Validate group exists
-    group_id = collection_data.get("group_id")
-    if group_id:
-        group = db.query(PodcastGroup).filter(PodcastGroup.id == group_id).first()
-        if not group:
-            raise HTTPException(status_code=404, detail="Podcast group not found")
+    # Validate groups exist if specified
+    group_ids = collection_data.get("group_ids", [])
+    groups = []
+    if group_ids:
+        for group_id in group_ids:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == UUID(group_id)).first()
+            if not group:
+                raise HTTPException(status_code=404, detail=f"Podcast group not found: {group_id}")
+            groups.append(group)
     
     # Create collection
     collection = Collection(
-        group_id=group_id,
+        name=collection_data.get("name", "Untitled Collection"),
+        description=collection_data.get("description"),
         status=collection_data.get("status", "processing")
     )
     db.add(collection)
     db.commit()
     db.refresh(collection)
     
+    # Assign to groups if specified
+    if groups:
+        collection.podcast_groups = groups
+        db.commit()
+        db.refresh(collection)
+    
     return {
         "id": str(collection.id),
-        "group_id": str(collection.group_id) if collection.group_id else None,
+        "name": collection.name,
+        "description": collection.description,
+        "group_ids": [str(group.id) for group in collection.podcast_groups],
         "status": collection.status,
-        "created_at": collection.created_at.isoformat(),
-        "updated_at": collection.updated_at.isoformat()
+        "created_at": collection.created_at.isoformat() if collection.created_at else None,
+        "updated_at": collection.updated_at.isoformat() if collection.updated_at else None
     }
 
 
@@ -1453,19 +1494,76 @@ async def update_collection(
         raise HTTPException(status_code=404, detail="Collection not found")
     
     # Update fields
+    if "name" in collection_data:
+        collection.name = collection_data["name"]
+    if "description" in collection_data:
+        collection.description = collection_data["description"]
     if "status" in collection_data:
         collection.status = collection_data["status"]
+    
+    # Update group assignments if provided
+    if "group_ids" in collection_data:
+        from shared.models import PodcastGroup
+        # Clear existing assignments
+        collection.podcast_groups.clear()
+        # Add new assignments
+        for group_id in collection_data["group_ids"]:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == UUID(group_id)).first()
+            if group:
+                collection.podcast_groups.append(group)
     
     db.commit()
     db.refresh(collection)
     
+    # Get group names
+    group_names = [group.name for group in collection.podcast_groups] if collection.podcast_groups else []
+    
     return {
         "id": str(collection.id),
-        "group_id": str(collection.group_id) if collection.group_id else None,
+        "name": collection.name,
+        "description": collection.description,
+        "group_ids": [str(group.id) for group in collection.podcast_groups],
+        "group_names": group_names,
         "status": collection.status,
-        "created_at": collection.created_at.isoformat(),
-        "updated_at": collection.updated_at.isoformat()
+        "created_at": collection.created_at.isoformat() if collection.created_at else None,
+        "updated_at": collection.updated_at.isoformat() if collection.updated_at else None
     }
+
+
+@app.post("/api/collections/{collection_id}/send-to-presenter")
+async def send_collection_to_presenter(collection_id: UUID, db: Session = Depends(get_db)):
+    """Send a collection to the presenter for voice generation."""
+    try:
+        from shared.models import Collection
+        
+        # Verify collection exists
+        collection = db.query(Collection).filter(Collection.id == collection_id).first()
+        if not collection:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        
+        # Call AI Overseer to send to presenter
+        return await call_service("ai-overseer", "POST", f"/api/collections/{collection_id}/send-to-presenter")
+    except Exception as e:
+        logger.error(f"Error sending collection to presenter: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send collection to presenter: {str(e)}")
+
+
+@app.post("/api/collections/{collection_id}/send-to-writer")
+async def send_collection_to_writer(collection_id: UUID, db: Session = Depends(get_db)):
+    """Send a collection to the writer for script generation."""
+    try:
+        from shared.models import Collection
+        
+        # Verify collection exists
+        collection = db.query(Collection).filter(Collection.id == collection_id).first()
+        if not collection:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        
+        # Call AI Overseer to send to writer
+        return await call_service("ai-overseer", "POST", f"/api/collections/{collection_id}/send-to-writer")
+    except Exception as e:
+        logger.error(f"Error sending collection to writer: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send collection to writer: {str(e)}")
 
 
 @app.post("/api/admin/cleanup")
