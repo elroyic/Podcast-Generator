@@ -238,7 +238,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8004 --workers 5
     user: "0"
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app:/app/VibeVoice-Community:/app/services/presenter:/app/shared
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - USE_VIBEVOICE=true
@@ -246,6 +246,8 @@ services:
       - HF_HUB_ENABLE_HF_TRANSFER=1
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - TTS_BACKEND=hf
+      - HF_MODEL_ID=aoi-ot/VibeVoice-Large
     deploy:
       resources:
         reservations:
@@ -263,6 +265,7 @@ services:
       - ./shared:/app/shared
       - storage_data:/app/storage
       - hf_cache:/app/.cache/huggingface
+      - ./VibeVoice-Community:/app/VibeVoice-Community:ro
 
   # Publishing Service
   publishing:
