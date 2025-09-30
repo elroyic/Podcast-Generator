@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 
 from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection
+from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection, User
 from shared.schemas import (
     PodcastGroup as PodcastGroupSchema,
     PodcastGroupCreate,
@@ -33,9 +33,14 @@ from shared.schemas import (
     NewsFeedCreate,
     GenerationRequest,
     GenerationResponse,
-    HealthCheck
+    HealthCheck,
+    User as UserSchema,
+    UserCreate,
+    UserUpdate,
+    UserPasswordUpdate
 )
 from fastapi import Body
+from passlib.context import CryptContext
 
 import os
 import subprocess
@@ -43,6 +48,9 @@ import subprocess
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 app = FastAPI(title="Podcast AI API Gateway", version="1.0.0")
 
@@ -145,28 +153,39 @@ async def call_service(service_name: str, method: str, endpoint: str, **kwargs) 
         raise HTTPException(status_code=500, detail=f"Service communication error: {str(e)}")
 
 
+# Helper functions for password hashing
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password."""
+    return pwd_context.hash(password)
+
+
 # Authentication Endpoints
 @app.post("/api/auth/login")
-async def login(credentials: Dict[str, str] = Body(...), request: Request = None):
-    """Simple login endpoint - in production, validate against a user database."""
+async def login(credentials: Dict[str, str] = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Login endpoint with database user support and environment variable fallback."""
     username = credentials.get("username")
     password = credentials.get("password")
     
-    # Simple hardcoded admin credentials (in production, use proper user management)
-    # Read admin credentials from environment
-    admin_username = os.getenv("ADMIN_USERNAME", "admin")
-    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-    if username == admin_username and password == admin_password:
+    # Try database user first
+    user = db.query(User).filter(User.username == username).first()
+    
+    if user and user.is_active and verify_password(password, user.hashed_password):
+        # Update last login
+        user.last_login = datetime.utcnow()
+        db.commit()
+        
         token = create_jwt_token(username)
-        # Set cookie via response in frontend fetch handler
-        from fastapi.responses import JSONResponse
         resp = JSONResponse({
             "access_token": token,
             "token_type": "bearer",
             "username": username,
-            "role": "elroyic"
+            "role": user.role
         })
-        # Cookie for HTML session auth
         resp.set_cookie(
             key="access_token",
             value=token,
@@ -176,8 +195,30 @@ async def login(credentials: Dict[str, str] = Body(...), request: Request = None
             secure=False
         )
         return resp
-    else:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Fallback to environment variables (for backward compatibility)
+    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    
+    if username == admin_username and password == admin_password:
+        token = create_jwt_token(username)
+        resp = JSONResponse({
+            "access_token": token,
+            "token_type": "bearer",
+            "username": username,
+            "role": "admin"
+        })
+        resp.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            max_age=JWT_EXPIRE_HOURS * 3600,
+            samesite="lax",
+            secure=False
+        )
+        return resp
+    
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 # Admin Interface
 def require_html_auth(request: Request) -> Optional[RedirectResponse]:
     token = request.cookies.get("access_token")
@@ -201,6 +242,142 @@ async def verify_token(current_user: Dict[str, Any] = Depends(get_current_user))
         "role": current_user.get("role"),
         "expires": current_user.get("exp")
     }
+
+
+# User Management Endpoints
+@app.get("/api/users", response_model=List[UserSchema])
+async def list_users(
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """List all users (admin only)."""
+    users = db.query(User).all()
+    return users
+
+
+@app.post("/api/users", response_model=UserSchema)
+async def create_user(
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Create a new user (admin only)."""
+    # Check if username already exists
+    existing_user = db.query(User).filter(User.username == user_data.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    # Check if email already exists
+    existing_email = db.query(User).filter(User.email == user_data.email).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already exists")
+    
+    # Create new user
+    user = User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=get_password_hash(user_data.password),
+        role=user_data.role,
+        is_active=True
+    )
+    
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    logger.info(f"User created: {user.username} (role: {user.role})")
+    return user
+
+
+@app.get("/api/users/{user_id}", response_model=UserSchema)
+async def get_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Get a specific user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.put("/api/users/{user_id}", response_model=UserSchema)
+async def update_user(
+    user_id: UUID,
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Update a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update fields
+    update_data = user_data.dict(exclude_unset=True)
+    
+    # Check if email is being changed and is unique
+    if "email" in update_data and update_data["email"] != user.email:
+        existing_email = db.query(User).filter(User.email == update_data["email"]).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already exists")
+    
+    for field, value in update_data.items():
+        setattr(user, field, value)
+    
+    db.commit()
+    db.refresh(user)
+    
+    logger.info(f"User updated: {user.username}")
+    return user
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Delete a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent deleting yourself
+    if user.username == current_user.get("sub"):
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    db.delete(user)
+    db.commit()
+    
+    logger.info(f"User deleted: {user.username}")
+    return {"message": "User deleted successfully"}
+
+
+@app.put("/api/users/me/password")
+async def change_own_password(
+    password_data: UserPasswordUpdate,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Change own password (authenticated users)."""
+    username = current_user.get("sub")
+    user = db.query(User).filter(User.username == username).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    if not verify_password(password_data.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Update password
+    user.hashed_password = get_password_hash(password_data.new_password)
+    db.commit()
+    
+    logger.info(f"Password changed for user: {user.username}")
+    return {"message": "Password changed successfully"}
 
 
 # Health Check
@@ -374,6 +551,15 @@ async def writers_page(request: Request):
     redirect = require_html_auth(request)
     if redirect: return redirect
     return templates.TemplateResponse("writers.html", {"request": request})
+
+
+# Admin Panel Page
+@app.get("/admin-panel", response_class=HTMLResponse)
+async def admin_panel_page(request: Request):
+    """Render the Admin Panel UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("admin-panel.html", {"request": request})
 
 
 # Management endpoints

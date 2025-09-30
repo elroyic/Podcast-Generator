@@ -318,6 +318,48 @@ class PresenterService(ServiceClient):
     def __init__(self):
         super().__init__("http://presenter:8004")
     
+    async def generate_brief(
+        self,
+        presenter_id: UUID,
+        collection_id: str,
+        articles: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Generate a 1000-word brief from a presenter on a collection."""
+        try:
+            request_data = {
+                "presenter_id": str(presenter_id),
+                "collection_id": collection_id,
+                "articles": articles
+            }
+            
+            return await self._make_request("POST", "/generate-brief", json=request_data)
+            
+        except Exception as e:
+            logger.error(f"Error generating presenter brief: {e}")
+            raise
+    
+    async def generate_feedback(
+        self,
+        presenter_id: UUID,
+        script_id: str,
+        script: str,
+        collection_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Generate 500-word feedback from a presenter on a script."""
+        try:
+            request_data = {
+                "presenter_id": str(presenter_id),
+                "script_id": script_id,
+                "script": script,
+                "collection_context": collection_context
+            }
+            
+            return await self._make_request("POST", "/generate-feedback", json=request_data)
+            
+        except Exception as e:
+            logger.error(f"Error generating presenter feedback: {e}")
+            raise
+    
     async def generate_audio(
         self,
         episode_id: UUID,
@@ -858,7 +900,29 @@ class EpisodeGenerationService:
             if not articles:
                 raise ValueError("No article content available to generate episode")
             
-            # Step 3: Generate script (Writer by default; can toggle to TextGeneration)
+            # Step 3: Generate presenter briefs for the collection
+            logger.info("Generating presenter briefs for collection")
+            presenter_briefs = []
+            try:
+                for presenter in group.presenters:
+                    logger.info(f"Requesting brief from presenter {presenter.name}")
+                    brief_result = await self.presenter_service.generate_brief(
+                        presenter_id=presenter.id,
+                        collection_id=collection_id or str(group_id),
+                        articles=articles
+                    )
+                    presenter_briefs.append({
+                        "presenter_id": str(presenter.id),
+                        "presenter_name": presenter.name,
+                        "brief": brief_result.get("brief", ""),
+                        "metadata": brief_result.get("brief_metadata", {})
+                    })
+                    logger.info(f"✅ Received brief from {presenter.name}")
+            except Exception as e:
+                logger.warning(f"Failed to generate presenter briefs: {e}")
+                # Continue without briefs if generation fails
+            
+            # Step 4: Generate script (Writer by default; can toggle to TextGeneration)
             if self.use_writer_for_script:
                 logger.info("Generating podcast script with Writer service")
                 article_contents = [f"{a.get('title', '')} - {a.get('summary', '')[:500]}" for a in articles]
@@ -887,15 +951,41 @@ class EpisodeGenerationService:
             db.commit()
             db.refresh(episode)
             
-            # Step 5: Edit script using Editor service
-            logger.info("Editing and polishing script")
+            # Step 5: Generate presenter feedback on the script
+            logger.info("Generating presenter feedback on script")
+            presenter_feedback = []
             try:
                 collection_context = {
                     "group_name": group.name,
                     "category": group.category or "General",
                     "article_count": len(articles),
-                    "target_audience": "general"
+                    "target_audience": "general",
+                    "presenter_briefs": presenter_briefs
                 }
+                
+                for presenter in group.presenters:
+                    logger.info(f"Requesting feedback from presenter {presenter.name}")
+                    feedback_result = await self.presenter_service.generate_feedback(
+                        presenter_id=presenter.id,
+                        script_id=str(episode.id),
+                        script=script,
+                        collection_context=collection_context
+                    )
+                    presenter_feedback.append({
+                        "presenter_id": str(presenter.id),
+                        "presenter_name": presenter.name,
+                        "feedback": feedback_result.get("feedback", ""),
+                        "metadata": feedback_result.get("feedback_metadata", {})
+                    })
+                    logger.info(f"✅ Received feedback from {presenter.name}")
+            except Exception as e:
+                logger.warning(f"Failed to generate presenter feedback: {e}")
+                # Continue without feedback if generation fails
+            
+            # Step 6: Edit script using Editor service
+            logger.info("Editing and polishing script")
+            try:
+                collection_context["presenter_feedback"] = presenter_feedback
                 
                 edit_result = await self.editor_service.edit_script(
                     script_id=str(episode.id),
@@ -916,7 +1006,7 @@ class EpisodeGenerationService:
                 logger.warning(f"Script editing failed, using original script: {e}")
                 # Continue with original script if editing fails
             
-            # Step 6: Generate metadata
+            # Step 7: Generate metadata
             logger.info("Generating episode metadata")
             metadata_result = await self.writer_service.generate_metadata(
                 episode.id, script, group_id
@@ -931,14 +1021,14 @@ class EpisodeGenerationService:
             db.add(metadata)
             db.commit()
             
-            # Step 7: Generate audio
+            # Step 8: Generate audio
             logger.info("Generating audio")
             presenter_ids = [p.id for p in group.presenters]
             audio_result = await self.presenter_service.generate_audio(
                 episode.id, script, presenter_ids
             )
             
-            # Step 7.1: Create AudioFile record
+            # Step 8.1: Create AudioFile record
             if "audio_url" in audio_result:
                 logger.info("Creating AudioFile record")
                 audio_file = AudioFile(
@@ -954,7 +1044,7 @@ class EpisodeGenerationService:
             episode.status = EpisodeStatus.VOICED
             db.commit()
             
-            # Step 8: Publish episode to local platforms
+            # Step 9: Publish episode to local platforms
             logger.info("Publishing episode to local platforms")
             try:
                 publish_result = await self.publishing_service.publish_episode(

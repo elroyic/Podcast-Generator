@@ -146,7 +146,7 @@ class VibeVoiceTTS:
         self.processor = None
         self.is_loaded = False
         self.use_vibevoice = os.getenv("USE_VIBEVOICE", "true").lower() == "true"
-        self.model_id = os.getenv("HF_MODEL_ID", "aoi-ot/VibeVoice-Large")
+        self.model_id = os.getenv("HF_MODEL_ID", "microsoft/VibeVoice-1.5B")
         
         if self.use_vibevoice:
             self._load_model()
@@ -194,22 +194,24 @@ class VibeVoiceTTS:
                 return
             except Exception as e:
                 logger.warning(f"AutoModelForCausalLM failed: {e}; trying community class...")
-                try:
-                    from vibevoice.modular.modeling_vibevoice_inference import (
-                        VibeVoiceForConditionalGenerationInference,
-                    )
-                    self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
-                        self.model_id,
-                        torch_dtype=dtype,
-                        device_map="auto",
-                        low_cpu_mem_usage=True,
-                    )
-                    self.model.eval()
-                    self.is_loaded = True
-                    logger.info("✅ Loaded VibeVoice-Community model directly")
-                    return
-                except Exception as le:
-                    logger.warning(f"Failed to load VibeVoice-Community model: {le}")
+            try:
+                from vibevoice.modular.modeling_vibevoice_inference import (
+                    VibeVoiceForConditionalGenerationInference,
+                )
+                # Load without device_map due to weight map KeyError with empty string
+                self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
+                    self.model_id,
+                    dtype=dtype,
+                    low_cpu_mem_usage=True,
+                )
+                # Manually move to GPU
+                self.model = self.model.to(self.device)
+                self.model.eval()
+                self.is_loaded = True
+                logger.info("✅ Loaded VibeVoice-Community model directly")
+                return
+            except Exception as le:
+                logger.warning(f"Failed to load VibeVoice-Community model: {le}")
             
         except ImportError as e:
             logger.warning(f"VibeVoice not available: {e}")

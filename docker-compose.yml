@@ -247,7 +247,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - TTS_BACKEND=hf
-      - HF_MODEL_ID=aoi-ot/VibeVoice-Large
+      - HF_MODEL_ID=microsoft/VibeVoice-1.5B
     deploy:
       resources:
         reservations:
