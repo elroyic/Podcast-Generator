@@ -286,7 +286,7 @@ class EditorService(ServiceClient):
     """Client for Editor Service."""
     
     def __init__(self):
-        super().__init__("http://editor:8010")
+        super().__init__("http://editor:8009")
     
     async def edit_script(
         self,
@@ -855,8 +855,19 @@ class EpisodeGenerationService:
             if not articles:
                 logger.info("Falling back to recent articles from NewsFeedService")
                 articles = await self.news_feed_service.get_recent_articles(group_id)
+            
+            # Validate minimum article count
+            MIN_FEEDS_REQUIRED = int(os.getenv("MIN_FEEDS_PER_COLLECTION", "3"))
             if not articles:
                 raise ValueError("No article content available to generate episode")
+            
+            if len(articles) < MIN_FEEDS_REQUIRED:
+                error_msg = f"Insufficient articles: {len(articles)}/{MIN_FEEDS_REQUIRED} required"
+                logger.warning(f"Collection validation failed for group {group_id}: {error_msg}")
+                
+                # Update episode status to skipped if episode was created
+                # (In this flow, episode is created later, so we just raise)
+                raise ValueError(error_msg)
             
             # Step 3: Generate script (Writer by default; can toggle to TextGeneration)
             if self.use_writer_for_script:
