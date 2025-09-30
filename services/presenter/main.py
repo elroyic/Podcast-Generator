@@ -155,7 +155,7 @@ class VibeVoiceTTS:
         """Load the HF model specified via HF_MODEL_ID."""
         try:
             logger.info(f"Loading HF TTS model '{self.model_id}' on {self.device}")
-            from transformers import AutoModel, AutoProcessor, AutoTokenizer
+            from transformers import AutoModel, AutoProcessor, AutoTokenizer, AutoModelForCausalLM
 
             # Try AutoProcessor first; if missing, fall back to AutoTokenizer
             self.processor = None
@@ -174,62 +174,42 @@ class VibeVoiceTTS:
             # Load model with remote code enabled
             dtype = torch.float16 if torch.cuda.is_available() else torch.float32
             try:
-                self.model = AutoModel.from_pretrained(
+                # Load via AutoModelForCausalLM after community registry import
+                from vibevoice.modular.modeling_vibevoice_inference import (
+                    VibeVoiceForConditionalGenerationInference,
+                )
+                from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
+                from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
+                logger.info("Community registry imported; attempting AutoModelForCausalLM...")
+                self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_id,
-                    trust_remote_code=True,
+                    trust_remote_code=False,
                     torch_dtype=dtype,
                     device_map="auto",
                     low_cpu_mem_usage=True,
                 )
-                # When device_map is used, modules are already placed; avoid forcing .to(self.device)
                 self.model.eval()
                 self.is_loaded = True
-                logger.info("✅ HF TTS model loaded successfully!")
+                logger.info("✅ Model loaded via AutoModelForCausalLM")
                 return
             except Exception as e:
-                logger.warning(f"HF AutoModel load failed for {self.model_id}: {e}")
-                # Try community local implementation
+                logger.warning(f"AutoModelForCausalLM failed: {e}; trying community class...")
                 try:
                     from vibevoice.modular.modeling_vibevoice_inference import (
                         VibeVoiceForConditionalGenerationInference,
                     )
-                    from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
-                    logger.info("Loading VibeVoice-Community model locally...")
-                    # Prefer local community processor if present in repo; else try HF
-                    local_repo = "/app/VibeVoice-Community/vibevoice"
-                    load_path = self.model_id
-                    if os.path.isdir(local_repo):
-                        load_path = local_repo
-                    self.processor = VibeVoiceProcessor.from_pretrained(load_path)
-                    # Map community configs if needed
-                    from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
-                    # Try to load config from HF
-                    from transformers.utils import cached_file
-                    import json
-                    # Prefer local config if available, otherwise HF
-                    local_config = os.path.join("/app/VibeVoice-Community/vibevoice", "configs", "qwen2.5_1.5b_64k.json")
-                    if os.path.isfile(local_config):
-                        with open(local_config, "r") as f:
-                            config_dict = json.load(f)
-                    else:
-                        config_file = cached_file(self.model_id, "config.json")
-                        with open(config_file, "r") as f:
-                            config_dict = json.load(f)
-                    config = VibeVoiceConfig(**config_dict)
-                    # Load weights from HF repo using the community model class
                     self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
                         self.model_id,
-                        config=config,
                         torch_dtype=dtype,
                         device_map="auto",
                         low_cpu_mem_usage=True,
                     )
                     self.model.eval()
                     self.is_loaded = True
-                    logger.info("✅ Loaded VibeVoice-Community model")
+                    logger.info("✅ Loaded VibeVoice-Community model directly")
                     return
                 except Exception as le:
-                    logger.warning(f"Failed to load local VibeVoice-Community model: {le}")
+                    logger.warning(f"Failed to load VibeVoice-Community model: {le}")
             
         except ImportError as e:
             logger.warning(f"VibeVoice not available: {e}")

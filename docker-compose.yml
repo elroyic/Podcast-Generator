@@ -267,6 +267,7 @@ services:
       - hf_cache:/app/.cache/huggingface
       - ./VibeVoice-Community:/app/VibeVoice-Community:ro
 
+
   # Publishing Service
   publishing:
     build: ./services/publishing
