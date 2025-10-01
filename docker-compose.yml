@@ -60,8 +60,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2"
-          memory: "4G"
+          cpus: "8"
+          memory: "8G"
 
   # Heavy Reviewer Service
   heavy-reviewer:
@@ -93,7 +93,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - LIGHT_REVIEWER_URL=http://light-reviewer:8000
       - HEAVY_REVIEWER_URL=http://heavy-reviewer:8000
-      - REVIEWER_CONF_THRESHOLD=0.4
+      - REVIEWER_CONF_THRESHOLD=0.7
     depends_on:
       postgres:
         condition: service_healthy
@@ -235,7 +235,7 @@ services:
       - "8004:8004"
     # Allow presenter to use up to 5 CPUs and spawn 5 workers
     cpus: "5.0"
-    command: uvicorn main:app --host 0.0.0.0 --port 8004 --workers 5
+    command: uvicorn main:app --host 0.0.0.0 --port 8004 --workers 1
     user: "0"
     environment:
       - PYTHONPATH=/app:/app/VibeVoice-Community:/app/services/presenter:/app/shared
@@ -247,7 +247,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - TTS_BACKEND=hf
-      - HF_MODEL_ID=microsoft/VibeVoice-1.5B
+      - HF_MODEL_ID=vibevoice/VibeVoice-1.5B
     deploy:
       resources:
         reservations:
@@ -310,7 +310,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     # Allow Ollama to use up to 5 CPUs
-    cpus: "5.0"
+    cpus: "8.0"
     volumes:
       - ollama_data:/root/.ollama
     environment:
@@ -318,8 +318,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "5.0"
-          memory: "8G"
+          cpus: "8.0"
+          memory: "16G"
 
   # Celery Worker
   celery-worker:
@@ -377,8 +377,68 @@ services:
       timeout: 10s
       retries: 3
 
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - api-gateway
+      - reviewer
+      - light-reviewer
+      - heavy-reviewer
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+
+  # Postgres Exporter for database metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Redis Exporter for cache metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   ollama_data:
   storage_data:
   hf_cache:
+  prometheus_data:
+  grafana_data:

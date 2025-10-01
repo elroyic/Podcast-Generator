@@ -208,6 +208,27 @@ class CollectionsService(ServiceClient):
         except Exception as e:
             logger.error(f"Error fetching collection {collection_id}: {e}")
             return None
+    
+    async def get_active_collection_for_group(self, group_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get the active building collection for a group."""
+        try:
+            return await self._make_request("GET", f"/collections/group/{str(group_id)}/active")
+        except Exception as e:
+            logger.error(f"Error fetching active collection for group {group_id}: {e}")
+            return None
+    
+    async def create_snapshot(self, collection_id: str, episode_id: str) -> Optional[str]:
+        """Create a snapshot of a collection for an episode."""
+        try:
+            result = await self._make_request(
+                "POST", 
+                f"/collections/{collection_id}/snapshot",
+                params={"episode_id": episode_id}
+            )
+            return result.get("snapshot_id")
+        except Exception as e:
+            logger.error(f"Error creating collection snapshot: {e}")
+            return None
 
 
 class TextGenerationService(ServiceClient):
@@ -286,7 +307,7 @@ class EditorService(ServiceClient):
     """Client for Editor Service."""
     
     def __init__(self):
-        super().__init__("http://editor:8010")
+        super().__init__("http://editor:8009")
     
     async def edit_script(
         self,
@@ -860,10 +881,31 @@ class EpisodeGenerationService:
         self.cadence_manager = CadenceManager()
         # Feature flag: allow switching script generation source
         self.use_writer_for_script = str(os.getenv("USE_WRITER_FOR_SCRIPT", "true")).lower() in ("1", "true", "yes")
+        # Redis for production lock
+        self.redis = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    
+    def _set_production_active(self, group_id: UUID, episode_id: UUID):
+        """Set production lock to pause reviewer service during podcast production."""
+        lock_key = "podcast:production:active"
+        lock_value = json.dumps({
+            "group_id": str(group_id),
+            "episode_id": str(episode_id),
+            "started_at": datetime.utcnow().isoformat()
+        })
+        # Set lock with 2 hour TTL as safety measure
+        self.redis.set(lock_key, lock_value, ex=2 * 3600)
+        logger.info(f"🔒 Production lock activated - Reviewer Service paused for group {group_id}")
+    
+    def _clear_production_lock(self):
+        """Clear production lock to resume reviewer service."""
+        lock_key = "podcast:production:active"
+        self.redis.delete(lock_key)
+        logger.info("🔓 Production lock cleared - Reviewer Service resumed")
     
     async def generate_complete_episode(self, group_id: UUID, collection_id: Optional[str] = None) -> Dict[str, Any]:
         """Generate a complete episode from start to finish."""
         db = get_db_session()
+        episode_id_for_lock = None
         
         try:
             logger.info(f"Starting complete episode generation for group {group_id}")
@@ -878,27 +920,99 @@ class EpisodeGenerationService:
                 self.cadence_manager.release_group_lock(group_id)
                 raise ValueError(f"Podcast group {group_id} not found")
             
-            # Step 2: Gather article summaries (prefer selected collection if provided)
+            # Step 2: Get active collection and create snapshot
+            snapshot_collection_id = None
             articles: List[Dict[str, Any]] = []
+            
             if collection_id:
-                logger.info(f"Using selected collection {collection_id} for content")
-                collection = await self.collections_service.get_collection(collection_id)
-                if collection:
-                    # Extract feeds as article summaries
-                    for item in collection.get("items", []):
-                        if item.get("item_type") == "feed":
-                            content = item.get("content", {})
-                            articles.append({
-                                "title": content.get("title"),
-                                "summary": content.get("summary"),
-                                "link": content.get("link"),
-                                "publish_date": content.get("publish_date")
-                            })
+                logger.info(f"Using manually selected collection {collection_id}")
+                # User provided a specific collection
+                active_collection_id = collection_id
+            else:
+                logger.info(f"Getting active collection for group {group_id}")
+                # Get the active building collection for this group
+                active_collection = await self.collections_service.get_active_collection_for_group(group_id)
+                if not active_collection:
+                    self.cadence_manager.release_group_lock(group_id)
+                    raise ValueError(f"No active collection found for group {group_id}")
+                active_collection_id = active_collection.get("collection_id")
+                logger.info(f"Found active collection: {active_collection_id}")
+            
+            # Step 3: Create a temporary episode to get an ID for the snapshot
+            logger.info("Creating episode record for snapshot")
+            episode = Episode(
+                group_id=group_id,
+                script="",  # Will be filled later
+                status=EpisodeStatus.DRAFT
+            )
+            db.add(episode)
+            db.commit()
+            db.refresh(episode)
+            
+            # PAUSE REVIEWER SERVICE during podcast production
+            episode_id_for_lock = episode.id
+            self._set_production_active(group_id, episode.id)
+            
+            # Step 4: Create snapshot of the collection
+            logger.info(f"Creating snapshot of collection {active_collection_id} for episode {episode.id}")
+            snapshot_collection_id = await self.collections_service.create_snapshot(
+                active_collection_id,
+                str(episode.id)
+            )
+            
+            if not snapshot_collection_id:
+                logger.warning("Failed to create snapshot, using original collection")
+                snapshot_collection_id = active_collection_id
+            else:
+                logger.info(f"✅ Created snapshot collection: {snapshot_collection_id}")
+                logger.info(f"✅ New building collection automatically created for future articles")
+            
+            # Step 5: Gather articles from the snapshot collection
+            logger.info(f"Using snapshot collection {snapshot_collection_id} for content")
+            collection = await self.collections_service.get_collection(snapshot_collection_id)
+            if collection:
+                # Extract feeds as article summaries
+                for item in collection.get("items", []):
+                    if item.get("item_type") == "feed":
+                        content = item.get("content", {})
+                        articles.append({
+                            "title": content.get("title"),
+                            "summary": content.get("summary"),
+                            "link": content.get("link"),
+                            "publish_date": content.get("publish_date")
+                        })
+            
+            # If snapshot had no articles, fall back to database articles for this episode
             if not articles:
-                logger.info("Falling back to recent articles from NewsFeedService")
+                logger.info("Snapshot has no items in memory, fetching from database")
+                # Get articles directly from database for this collection
+                from uuid import UUID as UUIDType
+                db_articles = db.query(Article).filter(
+                    Article.collection_id == UUIDType(snapshot_collection_id)
+                ).all()
+                
+                for article in db_articles:
+                    articles.append({
+                        "title": article.title,
+                        "summary": article.summary,
+                        "link": article.link,
+                        "publish_date": article.publish_date.isoformat() if article.publish_date else None
+                    })
+            
+            # Final fallback to recent articles
+            if not articles:
+                logger.warning("No articles in snapshot, falling back to recent articles")
                 articles = await self.news_feed_service.get_recent_articles(group_id)
+            
+            # Validate minimum article count
+            MIN_FEEDS_REQUIRED = int(os.getenv("MIN_FEEDS_PER_COLLECTION", "3"))
             if not articles:
                 raise ValueError("No article content available to generate episode")
+            
+            if len(articles) < MIN_FEEDS_REQUIRED:
+                error_msg = f"Insufficient articles: {len(articles)}/{MIN_FEEDS_REQUIRED} required"
+                logger.warning(f"Collection validation failed for group {group_id}: {error_msg}")
+                raise ValueError(error_msg)
             
             # Step 3: Generate presenter briefs for the collection
             logger.info("Generating presenter briefs for collection")
@@ -940,16 +1054,11 @@ class EpisodeGenerationService:
                 if not script:
                     raise ValueError("Text-Generation did not return a script")
             
-            # Step 4: Create episode record
-            logger.info("Creating episode record")
-            episode = Episode(
-                group_id=group_id,
-                script=script,
-                status=EpisodeStatus.DRAFT
-            )
-            db.add(episode)
+            # Episode record already created earlier for snapshot
+            # Update it with the generated script
+            logger.info("Updating episode with generated script")
+            episode.script = script
             db.commit()
-            db.refresh(episode)
             
             # Step 5: Generate presenter feedback on the script
             logger.info("Generating presenter feedback on script")
@@ -1059,7 +1168,8 @@ class EpisodeGenerationService:
             
             logger.info(f"Episode generation completed: {episode.id}")
             
-            # Release lock after successful completion
+            # Release locks after successful completion
+            self._clear_production_lock()
             self.cadence_manager.release_group_lock(group_id)
             
             return {
@@ -1073,7 +1183,8 @@ class EpisodeGenerationService:
         except Exception as e:
             logger.error(f"Error in episode generation: {e}")
             db.rollback()
-            # Release lock on error
+            # Release locks on error
+            self._clear_production_lock()
             self.cadence_manager.release_group_lock(group_id)
             raise
         finally:

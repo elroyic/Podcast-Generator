@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 
 from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection, User
+from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection, User, EpisodeMetadata, EpisodeStatus
 from shared.schemas import (
     PodcastGroup as PodcastGroupSchema,
     PodcastGroupCreate,
@@ -1057,6 +1057,115 @@ async def delete_writer(writer_id: str, db: Session = Depends(get_db)):
     return {"message": "Writer deleted successfully"}
 
 
+@app.get("/api/writers/{writer_id}/stats")
+async def get_writer_stats(writer_id: str, db: Session = Depends(get_db)):
+    """Get statistics for a specific writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    # Get groups assigned to this writer
+    groups = db.query(PodcastGroup).filter(PodcastGroup.writer_id == writer_id).all()
+    
+    # Get episodes from those groups
+    group_ids = [g.id for g in groups]
+    episodes = db.query(Episode).filter(Episode.group_id.in_(group_ids)).all() if group_ids else []
+    
+    # Get the most recent episode
+    recent_episode = db.query(Episode).filter(
+        Episode.group_id.in_(group_ids)
+    ).order_by(Episode.created_at.desc()).first() if group_ids else None
+    
+    # Calculate stats
+    stats = {
+        "writer_id": str(writer.id),
+        "writer_name": writer.name,
+        "groups_assigned": len(groups),
+        "group_names": [{"id": str(g.id), "name": g.name, "status": g.status.value} for g in groups],
+        "total_scripts": len(episodes),
+        "last_script_date": recent_episode.created_at.isoformat() if recent_episode else None,
+        "scripts_by_status": {
+            "draft": sum(1 for e in episodes if e.status == EpisodeStatus.DRAFT),
+            "voiced": sum(1 for e in episodes if e.status == EpisodeStatus.VOICED),
+            "published": sum(1 for e in episodes if e.status == EpisodeStatus.PUBLISHED),
+        },
+        "recent_activity": []
+    }
+    
+    # Get recent episodes (last 10)
+    recent_episodes = db.query(Episode).filter(
+        Episode.group_id.in_(group_ids)
+    ).order_by(Episode.created_at.desc()).limit(10).all() if group_ids else []
+    
+    for episode in recent_episodes:
+        group = next((g for g in groups if g.id == episode.group_id), None)
+        stats["recent_activity"].append({
+            "episode_id": str(episode.id),
+            "group_name": group.name if group else "Unknown",
+            "status": episode.status.value,
+            "created_at": episode.created_at.isoformat() if episode.created_at else None
+        })
+    
+    return stats
+
+
+@app.get("/api/writers/{writer_id}/scripts")
+async def get_writer_scripts(
+    writer_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """Get scripts created by a specific writer (via their assigned groups)."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    # Get groups assigned to this writer
+    groups = db.query(PodcastGroup).filter(PodcastGroup.writer_id == writer_id).all()
+    group_ids = [g.id for g in groups]
+    
+    if not group_ids:
+        return {"total": 0, "scripts": []}
+    
+    # Get total count
+    total = db.query(Episode).filter(Episode.group_id.in_(group_ids)).count()
+    
+    # Get episodes with pagination
+    episodes = db.query(Episode).filter(
+        Episode.group_id.in_(group_ids)
+    ).order_by(Episode.created_at.desc()).limit(limit).offset(offset).all()
+    
+    # Build response
+    scripts = []
+    for episode in episodes:
+        group = next((g for g in groups if g.id == episode.group_id), None)
+        
+        # Get metadata if available
+        metadata = db.query(EpisodeMetadata).filter(
+            EpisodeMetadata.episode_id == episode.id
+        ).first()
+        
+        scripts.append({
+            "episode_id": str(episode.id),
+            "group_id": str(episode.group_id),
+            "group_name": group.name if group else "Unknown",
+            "title": metadata.title if metadata else None,
+            "script": episode.script,
+            "status": episode.status.value,
+            "created_at": episode.created_at.isoformat() if episode.created_at else None,
+            "category": metadata.category if metadata else None,
+            "tags": metadata.tags if metadata else []
+        })
+    
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "scripts": scripts
+    }
+
+
 # News Feeds API
 @app.get("/api/news-feeds", response_model=List[NewsFeedSchema])
 async def list_news_feeds(db: Session = Depends(get_db)):
@@ -1337,7 +1446,7 @@ async def get_news_feed_stats(db: Session = Depends(get_db)):
 
 @app.get("/api/news-feed/recent-articles")
 async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
-    """Get recent articles from all feeds."""
+    """Get recent articles from all feeds (legacy endpoint, use /api/news-feed/articles for full features)."""
     from shared.models import Article, NewsFeed
     
     articles = db.query(Article).join(NewsFeed).order_by(
@@ -1359,6 +1468,161 @@ async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
         })
     
     return result
+
+
+@app.get("/api/news-feed/articles")
+async def list_all_articles(
+    limit: int = 50,
+    offset: int = 0,
+    feed_id: Optional[str] = None,
+    reviewer_type: Optional[str] = None,
+    has_collection: Optional[bool] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get paginated list of articles with filtering options."""
+    from shared.models import Article, NewsFeed, Collection
+    from datetime import datetime
+    
+    # Build query
+    query = db.query(Article).join(NewsFeed, Article.feed_id == NewsFeed.id)
+    
+    # Apply filters
+    if feed_id:
+        try:
+            query = query.filter(Article.feed_id == UUID(feed_id))
+        except ValueError:
+            pass
+    
+    if reviewer_type:
+        if reviewer_type == "unreviewed":
+            query = query.filter(Article.reviewer_type.is_(None))
+        else:
+            query = query.filter(Article.reviewer_type == reviewer_type)
+    
+    if has_collection is not None:
+        if has_collection:
+            query = query.filter(Article.collection_id.isnot(None))
+        else:
+            query = query.filter(Article.collection_id.is_(None))
+    
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            Article.title.ilike(search_term) | 
+            Article.summary.ilike(search_term) |
+            Article.content.ilike(search_term)
+        )
+    
+    if date_from:
+        try:
+            from_date = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+            query = query.filter(Article.created_at >= from_date)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            to_date = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+            query = query.filter(Article.created_at <= to_date)
+        except ValueError:
+            pass
+    
+    # Get total count before pagination
+    total_count = query.count()
+    
+    # Apply ordering and pagination
+    articles = query.order_by(Article.created_at.desc()).offset(offset).limit(limit).all()
+    
+    # Build result
+    result = []
+    for article in articles:
+        feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+        collection_name = None
+        if article.collection_id:
+            collection = db.query(Collection).filter(Collection.id == article.collection_id).first()
+            if collection:
+                collection_name = collection.name
+        
+        result.append({
+            "id": str(article.id),
+            "title": article.title,
+            "link": article.link,
+            "summary": article.summary,
+            "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+            "created_at": article.created_at.isoformat() if article.created_at else None,
+            "feed_id": str(article.feed_id),
+            "feed_name": feed.name if feed else "Unknown Feed",
+            "reviewer_type": article.reviewer_type,
+            "review_tags": article.review_tags or [],
+            "confidence": article.confidence,
+            "collection_id": str(article.collection_id) if article.collection_id else None,
+            "collection_name": collection_name
+        })
+    
+    return {
+        "total": total_count,
+        "offset": offset,
+        "limit": limit,
+        "articles": result
+    }
+
+
+@app.get("/api/news-feed/articles/{article_id}")
+async def get_article_details(article_id: UUID, db: Session = Depends(get_db)):
+    """Get detailed information about a specific article."""
+    from shared.models import Article, NewsFeed, Collection, Episode
+    
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    
+    # Get feed information
+    feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+    
+    # Get collection information
+    collection = None
+    collection_name = None
+    if article.collection_id:
+        collection = db.query(Collection).filter(Collection.id == article.collection_id).first()
+        if collection:
+            collection_name = collection.name
+    
+    # Get linked episodes
+    linked_episodes = []
+    if article.episodes:
+        for episode in article.episodes:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == episode.group_id).first()
+            linked_episodes.append({
+                "id": str(episode.id),
+                "status": episode.status.value if episode.status else "unknown",
+                "created_at": episode.created_at.isoformat() if episode.created_at else None,
+                "group_name": group.name if group else "Unknown Group"
+            })
+    
+    return {
+        "id": str(article.id),
+        "title": article.title,
+        "link": article.link,
+        "summary": article.summary,
+        "content": article.content,
+        "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+        "created_at": article.created_at.isoformat() if article.created_at else None,
+        "feed_id": str(article.feed_id),
+        "feed_name": feed.name if feed else "Unknown Feed",
+        "feed_url": feed.source_url if feed else None,
+        "collection_id": str(article.collection_id) if article.collection_id else None,
+        "collection_name": collection_name,
+        "reviewer_type": article.reviewer_type,
+        "review_tags": article.review_tags or [],
+        "review_summary": article.review_summary,
+        "confidence": article.confidence,
+        "processed_at": article.processed_at.isoformat() if article.processed_at else None,
+        "review_metadata": article.review_metadata,
+        "linked_episodes": linked_episodes
+    }
 
 
 @app.get("/api/news-feed/performance")

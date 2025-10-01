@@ -428,6 +428,16 @@ def update_collection_status():
 def send_articles_to_reviewer():
     """Send unreviewed articles to the Reviewer service."""
     try:
+        # Check if podcast production is active - if so, skip review dispatch
+        import redis
+        redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+        production_lock_key = "podcast:production:active"
+        
+        if redis_client.exists(production_lock_key):
+            production_info = redis_client.get(production_lock_key)
+            logger.info(f"⏸️ Skipping review dispatch - Podcast production active: {production_info}")
+            return
+        
         logger.info("Sending unreviewed articles to reviewer")
         
         db = get_db_session()

@@ -677,6 +677,91 @@ async def cleanup_old_data(background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=f"Failed to queue cleanup task: {str(e)}")
 
 
+@app.post("/api/collections/{collection_id}/send-to-presenter")
+async def send_collection_to_presenter(collection_id: str, db: Session = Depends(get_db)):
+    """Send a collection to presenters for review (generates presenter briefs)."""
+    try:
+        logger.info(f"Sending collection {collection_id} to presenters for review")
+        
+        # Get the collection to find its associated group
+        from app.services import CollectionsService
+        collections_service = CollectionsService()
+        collection = await collections_service.get_collection(collection_id)
+        
+        if not collection:
+            raise HTTPException(status_code=404, detail=f"Collection {collection_id} not found")
+        
+        # Get the group IDs from the collection (collections can belong to multiple groups)
+        group_ids = collection.get("group_ids", [])
+        if not group_ids:
+            raise HTTPException(status_code=400, detail="Collection has no associated groups")
+        
+        # Use the first group ID (in most cases there's only one)
+        group_id = group_ids[0]
+        logger.info(f"Using group {group_id} for collection {collection_id}")
+        
+        # Convert string to UUID
+        from uuid import UUID
+        group_uuid = UUID(group_id)
+        
+        # Get the podcast group
+        group = db.query(PodcastGroup).filter(PodcastGroup.id == group_uuid).first()
+        if not group:
+            raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+        
+        # Extract articles from collection
+        articles = []
+        for item in collection.get("items", []):
+            if item.get("item_type") == "feed":
+                content = item.get("content", {})
+                articles.append({
+                    "title": content.get("title"),
+                    "summary": content.get("summary"),
+                    "link": content.get("link"),
+                    "publish_date": content.get("publish_date")
+                })
+        
+        if not articles:
+            raise HTTPException(status_code=400, detail="Collection has no articles")
+        
+        # Generate presenter briefs
+        from app.services import PresenterService
+        presenter_service = PresenterService()
+        presenter_briefs = []
+        
+        for presenter in group.presenters:
+            logger.info(f"Requesting brief from presenter {presenter.name}")
+            try:
+                brief_result = await presenter_service.generate_brief(
+                    presenter_id=presenter.id,
+                    collection_id=collection_id,
+                    articles=articles
+                )
+                presenter_briefs.append({
+                    "presenter_id": str(presenter.id),
+                    "presenter_name": presenter.name,
+                    "brief": brief_result.get("brief", ""),
+                    "metadata": brief_result.get("brief_metadata", {})
+                })
+                logger.info(f"✅ Received brief from {presenter.name}")
+            except Exception as e:
+                logger.error(f"Failed to get brief from {presenter.name}: {e}")
+                # Continue with other presenters
+        
+        return {
+            "status": "success",
+            "message": f"Collection sent to {len(presenter_briefs)} presenters",
+            "presenter_briefs": presenter_briefs,
+            "collection_id": collection_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending collection to presenters: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send collection to presenters: {str(e)}")
+
+
 @app.get("/cadence/status")
 async def get_cadence_status(group_id: Optional[str] = None, db: Session = Depends(get_db)):
     """Get cadence status for podcast groups."""

@@ -6,6 +6,18 @@
     <title>Podcast AI - Writers</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        @media (max-width: 768px) {
+            .mobile-nav-menu {
+                max-height: 0;
+                overflow: hidden;
+                transition: max-height 0.3s ease-out;
+            }
+            .mobile-nav-menu.active {
+                max-height: 500px;
+            }
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <div class="min-h-screen">
@@ -14,18 +26,39 @@
             <div class="max-w-7xl mx-auto px-4">
                 <div class="flex justify-between h-16">
                     <div class="flex items-center">
-                        <a href="/" class="text-xl font-bold text-gray-800">Podcast AI</a>
+                        <h1 class="text-lg sm:text-xl font-bold text-gray-800">Podcast AI</h1>
                     </div>
-                    <div class="flex items-center space-x-4">
-                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
-                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
-                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
-                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
-                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
-                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
-                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
-                        <a href="/writers" class="text-gray-900 font-semibold">Writers</a>
-                        <a href="/admin-panel" class="text-gray-600 hover:text-gray-900">Admin</a>
+                    <!-- Desktop Navigation -->
+                    <div class="hidden lg:flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900 text-sm">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900 text-sm">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900 text-sm">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900 text-sm">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900 text-sm">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900 text-sm">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900 text-sm">Collections</a>
+                        <a href="/writers" class="text-gray-900 font-semibold text-sm">Writers</a>
+                        <a href="/admin-panel" class="text-gray-600 hover:text-gray-900 text-sm">Admin</a>
+                    </div>
+                    <!-- Mobile menu button -->
+                    <div class="lg:hidden flex items-center">
+                        <button id="mobile-menu-btn" class="text-gray-600 hover:text-gray-900 focus:outline-none">
+                            <i class="bi bi-list text-2xl"></i>
+                        </button>
+                    </div>
+                </div>
+                <!-- Mobile Navigation Menu -->
+                <div id="mobile-menu" class="mobile-nav-menu lg:hidden">
+                    <div class="py-2 space-y-1">
+                        <a href="/" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Dashboard</a>
+                        <a href="/groups" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Groups</a>
+                        <a href="/reviewer" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Reviewer</a>
+                        <a href="/presenters" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Presenters</a>
+                        <a href="/episodes" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Episodes</a>
+                        <a href="/news-feed" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">News Feed</a>
+                        <a href="/collections" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Collections</a>
+                        <a href="/writers" class="block px-4 py-2 text-gray-900 font-semibold bg-gray-100">Writers</a>
+                        <a href="/admin-panel" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Admin</a>
                     </div>
                 </div>
             </div>
@@ -46,6 +79,8 @@
                             <tr>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capabilities</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Groups</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scripts</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
                                 <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -53,6 +88,69 @@
                         </thead>
                         <tbody id="writers-body" class="bg-white divide-y divide-gray-200"></tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- Writer Stats Panel (Hidden by default) -->
+            <div id="stats-panel" class="mt-6 bg-white shadow overflow-hidden sm:rounded-lg hidden">
+                <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
+                    <h3 id="stats-writer-name" class="text-lg font-medium text-gray-900">Writer Statistics</h3>
+                    <button id="close-stats" class="text-gray-500 hover:text-gray-700">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="border-t border-gray-200 px-4 py-5 sm:p-6">
+                    <!-- Stats Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <div class="text-sm text-gray-600">Groups Assigned</div>
+                            <div id="stat-groups" class="text-2xl font-bold text-blue-600">-</div>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg">
+                            <div class="text-sm text-gray-600">Total Scripts</div>
+                            <div id="stat-total" class="text-2xl font-bold text-green-600">-</div>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <div class="text-sm text-gray-600">Published</div>
+                            <div id="stat-published" class="text-2xl font-bold text-purple-600">-</div>
+                        </div>
+                        <div class="bg-orange-50 p-4 rounded-lg">
+                            <div class="text-sm text-gray-600">Last Script</div>
+                            <div id="stat-last-date" class="text-sm font-semibold text-orange-600">-</div>
+                        </div>
+                    </div>
+
+                    <!-- Assigned Groups -->
+                    <div class="mb-6">
+                        <h4 class="text-md font-semibold text-gray-700 mb-2">Assigned Groups</h4>
+                        <div id="assigned-groups" class="flex flex-wrap gap-2"></div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="mb-6">
+                        <h4 class="text-md font-semibold text-gray-700 mb-2">Recent Activity</h4>
+                        <div id="recent-activity" class="space-y-2 max-h-64 overflow-y-auto"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scripts Review Section -->
+            <div id="scripts-panel" class="mt-6 bg-white shadow overflow-hidden sm:rounded-lg hidden">
+                <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
+                    <h3 id="scripts-writer-name" class="text-lg font-medium text-gray-900">Past Scripts</h3>
+                    <button id="close-scripts" class="text-gray-500 hover:text-gray-700">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="border-t border-gray-200">
+                    <div id="scripts-list" class="divide-y divide-gray-200"></div>
+                    <div id="scripts-pagination" class="px-4 py-3 bg-gray-50 border-t flex justify-between items-center">
+                        <div id="scripts-info" class="text-sm text-gray-600"></div>
+                        <div class="space-x-2">
+                            <button id="scripts-prev" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50" disabled>Previous</button>
+                            <button id="scripts-next" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50" disabled>Next</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -101,6 +199,19 @@
     </div>
 
     <script>
+        document.addEventListener(\'DOMContentLoaded\', () => {
+            // Mobile menu toggle
+            const menuBtn = document.getElementById('mobile-menu-btn');
+            const mobileMenu = document.getElementById('mobile-menu');
+            
+            if (menuBtn && mobileMenu) {
+                menuBtn.addEventListener('click', () => {
+                    mobileMenu.classList.toggle('active');
+                });
+            }
+            
+        });
+
         const $ = (s) => document.querySelector(s);
         const $$ = (s) => Array.from(document.querySelectorAll(s));
 
@@ -130,23 +241,199 @@
             return await res.json();
         }
 
+        // State for current writer being viewed
+        let currentWriterId = null;
+        let currentScriptsPage = 0;
+        const scriptsPerPage = 10;
+
+        async function loadWriterStats(writerId) {
+            try {
+                const stats = await fetchJSON(`/api/writers/${writerId}/stats`);
+                return stats;
+            } catch (error) {
+                console.error('Error loading writer stats:', error);
+                return null;
+            }
+        }
+
         function renderWriters(writers) {
             const tbody = document.getElementById('writers-body');
             tbody.innerHTML = '';
-            for (const w of writers) {
+            
+            // Load stats for all writers asynchronously
+            writers.forEach(async (w) => {
+                const stats = await loadWriterStats(w.id);
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="px-4 py-2 text-sm text-gray-900">${w.name || ''}</td>
                     <td class="px-4 py-2 text-sm text-gray-600">${(w.capabilities || []).join(', ') || 'None'}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">
+                        <span class="font-semibold">${stats?.groups_assigned || 0}</span> groups
+                    </td>
+                    <td class="px-4 py-2 text-sm text-gray-600">
+                        <span class="font-semibold">${stats?.total_scripts || 0}</span> scripts
+                    </td>
                     <td class="px-4 py-2 text-sm">
                         <span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800">Active</span>
                     </td>
                     <td class="px-4 py-2 text-sm text-gray-600">${w.model || 'Ollama'}</td>
                     <td class="px-4 py-2 text-sm text-right">
-                        <button class="text-indigo-600 hover:text-indigo-900 mr-3" data-action="edit" data-id="${w.id}"><i class="bi bi-pencil-square"></i></button>
-                        <button class="text-red-600 hover:text-red-800" data-action="delete" data-id="${w.id}"><i class="bi bi-trash"></i></button>
+                        <button class="text-blue-600 hover:text-blue-900 mr-2" data-action="stats" data-id="${w.id}" title="View Stats">
+                            <i class="bi bi-bar-chart-fill"></i>
+                        </button>
+                        <button class="text-purple-600 hover:text-purple-900 mr-2" data-action="scripts" data-id="${w.id}" title="View Scripts">
+                            <i class="bi bi-file-text-fill"></i>
+                        </button>
+                        <button class="text-indigo-600 hover:text-indigo-900 mr-2" data-action="edit" data-id="${w.id}" title="Edit">
+                            <i class="bi bi-pencil-square"></i>
+                        </button>
+                        <button class="text-red-600 hover:text-red-800" data-action="delete" data-id="${w.id}" title="Delete">
+                            <i class="bi bi-trash"></i>
+                        </button>
                     </td>`;
                 tbody.appendChild(tr);
+            });
+        }
+
+        async function showWriterStats(writerId) {
+            const stats = await loadWriterStats(writerId);
+            if (!stats) {
+                alert('Failed to load writer stats');
+                return;
+            }
+
+            currentWriterId = writerId;
+            
+            // Update header
+            $('#stats-writer-name').textContent = `Statistics: ${stats.writer_name}`;
+            
+            // Update stats
+            $('#stat-groups').textContent = stats.groups_assigned || 0;
+            $('#stat-total').textContent = stats.total_scripts || 0;
+            $('#stat-published').textContent = stats.scripts_by_status?.published || 0;
+            
+            // Format last script date
+            if (stats.last_script_date) {
+                const date = new Date(stats.last_script_date);
+                $('#stat-last-date').textContent = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            } else {
+                $('#stat-last-date').textContent = 'Never';
+            }
+            
+            // Render assigned groups
+            const groupsContainer = $('#assigned-groups');
+            groupsContainer.innerHTML = '';
+            if (stats.group_names && stats.group_names.length > 0) {
+                stats.group_names.forEach(group => {
+                    const badge = document.createElement('span');
+                    badge.className = `px-3 py-1 rounded-full text-xs font-semibold ${
+                        group.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`;
+                    badge.textContent = group.name;
+                    groupsContainer.appendChild(badge);
+                });
+            } else {
+                groupsContainer.innerHTML = '<span class="text-gray-500 text-sm">No groups assigned</span>';
+            }
+            
+            // Render recent activity
+            const activityContainer = $('#recent-activity');
+            activityContainer.innerHTML = '';
+            if (stats.recent_activity && stats.recent_activity.length > 0) {
+                stats.recent_activity.forEach(activity => {
+                    const activityDiv = document.createElement('div');
+                    activityDiv.className = 'p-3 bg-gray-50 rounded';
+                    const date = new Date(activity.created_at);
+                    const statusBadge = {
+                        'draft': 'bg-yellow-100 text-yellow-800',
+                        'voiced': 'bg-blue-100 text-blue-800',
+                        'published': 'bg-green-100 text-green-800'
+                    }[activity.status] || 'bg-gray-100 text-gray-800';
+                    
+                    activityDiv.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="text-sm font-medium text-gray-900">${activity.group_name}</div>
+                                <div class="text-xs text-gray-500">${date.toLocaleDateString()} ${date.toLocaleTimeString()}</div>
+                            </div>
+                            <span class="px-2 py-1 rounded text-xs ${statusBadge}">${activity.status}</span>
+                        </div>
+                    `;
+                    activityContainer.appendChild(activityDiv);
+                });
+            } else {
+                activityContainer.innerHTML = '<span class="text-gray-500 text-sm">No recent activity</span>';
+            }
+            
+            // Show panel
+            $('#stats-panel').classList.remove('hidden');
+            $('#scripts-panel').classList.add('hidden');
+        }
+
+        async function showWriterScripts(writerId, page = 0) {
+            try {
+                const offset = page * scriptsPerPage;
+                const data = await fetchJSON(`/api/writers/${writerId}/scripts?limit=${scriptsPerPage}&offset=${offset}`);
+                
+                currentWriterId = writerId;
+                currentScriptsPage = page;
+                
+                // Get writer info
+                const writer = await fetchJSON(`/api/writers/${writerId}`);
+                $('#scripts-writer-name').textContent = `Past Scripts: ${writer.name}`;
+                
+                // Render scripts
+                const scriptsList = $('#scripts-list');
+                scriptsList.innerHTML = '';
+                
+                if (data.scripts && data.scripts.length > 0) {
+                    data.scripts.forEach(script => {
+                        const scriptDiv = document.createElement('div');
+                        scriptDiv.className = 'p-4 hover:bg-gray-50';
+                        const date = new Date(script.created_at);
+                        const statusBadge = {
+                            'draft': 'bg-yellow-100 text-yellow-800',
+                            'voiced': 'bg-blue-100 text-blue-800',
+                            'published': 'bg-green-100 text-green-800'
+                        }[script.status] || 'bg-gray-100 text-gray-800';
+                        
+                        scriptDiv.innerHTML = `
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <h5 class="text-md font-semibold text-gray-900">${script.title || 'Untitled Episode'}</h5>
+                                    <div class="text-sm text-gray-600">${script.group_name}</div>
+                                    <div class="text-xs text-gray-500">${date.toLocaleDateString()} ${date.toLocaleTimeString()}</div>
+                                </div>
+                                <span class="px-2 py-1 rounded text-xs ${statusBadge}">${script.status}</span>
+                            </div>
+                            ${script.tags && script.tags.length > 0 ? `
+                                <div class="flex flex-wrap gap-1 mb-2">
+                                    ${script.tags.map(tag => `<span class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">${tag}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                            <details class="mt-2">
+                                <summary class="cursor-pointer text-sm text-blue-600 hover:text-blue-800">View Script</summary>
+                                <div class="mt-2 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap max-h-96 overflow-y-auto">${script.script || 'No script available'}</div>
+                            </details>
+                        `;
+                        scriptsList.appendChild(scriptDiv);
+                    });
+                } else {
+                    scriptsList.innerHTML = '<div class="p-4 text-gray-500 text-center">No scripts found</div>';
+                }
+                
+                // Update pagination
+                $('#scripts-info').textContent = `Showing ${offset + 1}-${Math.min(offset + scriptsPerPage, data.total)} of ${data.total}`;
+                $('#scripts-prev').disabled = page === 0;
+                $('#scripts-next').disabled = offset + scriptsPerPage >= data.total;
+                
+                // Show panel
+                $('#scripts-panel').classList.remove('hidden');
+                $('#stats-panel').classList.add('hidden');
+                
+            } catch (error) {
+                console.error('Error loading scripts:', error);
+                alert('Failed to load scripts');
             }
         }
 
@@ -189,6 +476,22 @@
                 if (confirm('Delete this writer?')) {
                     await fetch(`/api/writers/${id}`, { method: 'DELETE' });
                     await loadWriters();
+                }
+            } else if (action === 'stats') {
+                await showWriterStats(id);
+            } else if (action === 'scripts') {
+                await showWriterScripts(id, 0);
+            } else if (btn.id === 'close-stats') {
+                $('#stats-panel').classList.add('hidden');
+            } else if (btn.id === 'close-scripts') {
+                $('#scripts-panel').classList.add('hidden');
+            } else if (btn.id === 'scripts-prev') {
+                if (currentWriterId && currentScriptsPage > 0) {
+                    await showWriterScripts(currentWriterId, currentScriptsPage - 1);
+                }
+            } else if (btn.id === 'scripts-next') {
+                if (currentWriterId) {
+                    await showWriterScripts(currentWriterId, currentScriptsPage + 1);
                 }
             } else if (btn.id === 'btn-generate-persona') {
                 const category = prompt('Enter category for AI generation (e.g., Technology, Finance):') || 'General';

@@ -146,7 +146,7 @@ class VibeVoiceTTS:
         self.processor = None
         self.is_loaded = False
         self.use_vibevoice = os.getenv("USE_VIBEVOICE", "true").lower() == "true"
-        self.model_id = os.getenv("HF_MODEL_ID", "microsoft/VibeVoice-1.5B")
+        self.model_id = os.getenv("HF_MODEL_ID", "vibevoice/VibeVoice-1.5B")
         
         if self.use_vibevoice:
             self._load_model()
@@ -809,7 +809,7 @@ async def generate_audio(request: AudioGenerationRequest):
         actual_duration = len(audio_segment) / 1000.0  # Convert from milliseconds
         
         generation_metadata = {
-            "model_used": os.getenv("HF_MODEL_ID", "aoi-ot/VibeVoice-Large"),
+            "model_used": os.getenv("HF_MODEL_ID", "vibevoice/VibeVoice-1.5B"),
             "voice_settings": request.voice_settings or {},
             "presenter_ids": [str(pid) for pid in request.presenter_ids],
             "generation_timestamp": datetime.utcnow().isoformat(),
@@ -858,7 +858,7 @@ async def test_audio_generation(test_text: str = "Hello, this is a test of the t
             "duration_seconds": int(actual_duration),
             "file_size_bytes": file_size,
             "format": "mp3",
-            "model_used": os.getenv("HF_MODEL_ID", "aoi-ot/VibeVoice-Large"),
+            "model_used": os.getenv("HF_MODEL_ID", "vibevoice/VibeVoice-1.5B"),
             "timestamp": datetime.utcnow().isoformat()
         }
         
