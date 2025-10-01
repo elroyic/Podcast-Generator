@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Episode, EpisodeMetadata
+from shared.models import PodcastGroup, Episode, EpisodeMetadata, Presenter
 from shared.schemas import EpisodeMetadataCreate, EpisodeMetadata as EpisodeMetadataSchema
 
 # Configure logging
@@ -25,6 +25,7 @@ app = FastAPI(title="Writer Service", version="1.0.0")
 # Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:latest")
+MAX_TOKENS_PER_REQUEST = int(os.getenv("MAX_TOKENS_PER_REQUEST", "5000"))
 
 
 class MetadataGenerationRequest(BaseModel):
@@ -55,16 +56,21 @@ class OllamaClient:
     
     def __init__(self, base_url: str = OLLAMA_BASE_URL):
         self.base_url = base_url
-        self.client = httpx.AsyncClient(timeout=60.0)
+        # Increased timeout for gpt-oss:20b which includes thinking time
+        self.client = httpx.AsyncClient(timeout=180.0)
     
     async def generate_metadata(
         self,
         model: str,
         prompt: str,
-        system_prompt: str = None
+        system_prompt: str = None,
+        max_tokens: int = None
     ) -> str:
         """Generate metadata using Ollama."""
         try:
+            if max_tokens is None:
+                max_tokens = MAX_TOKENS_PER_REQUEST
+            
             payload = {
                 "model": model,
                 "prompt": prompt,
@@ -72,7 +78,7 @@ class OllamaClient:
                 "options": {
                     "temperature": 0.8,
                     "top_p": 0.9,
-                    "max_tokens": 2000
+                    "num_predict": max_tokens  # Ollama uses num_predict for max tokens
                 }
             }
             
@@ -86,7 +92,18 @@ class OllamaClient:
             response.raise_for_status()
             
             result = response.json()
-            return result.get("response", "")
+            response_text = result.get("response", "")
+            
+            # Clean gpt-oss:20b thinking sections
+            # Remove "Thinking..." sections that appear before actual response
+            import re
+            cleaned_text = re.sub(r'Thinking\.\.\..*?\.\.\.done thinking\.\s*', '', response_text, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Also remove standalone thinking markers
+            cleaned_text = re.sub(r'^Thinking\.\.\.', '', cleaned_text, flags=re.MULTILINE | re.IGNORECASE)
+            cleaned_text = re.sub(r'\.\.\.done thinking\.$', '', cleaned_text, flags=re.MULTILINE | re.IGNORECASE)
+            
+            return cleaned_text.strip()
             
         except Exception as e:
             logger.error(f"Error generating metadata with Ollama: {e}")
@@ -94,15 +111,25 @@ class OllamaClient:
 
 
 class ScriptGenerator:
-    """Handles episode script generation logic using Qwen3."""
+    """Handles episode script generation logic using gpt-oss-20b (high-quality model with 4k token limit)."""
     
     def __init__(self):
         self.ollama_client = OllamaClient()
+        logger.info(f"🎯 ScriptGenerator initialized with model: {DEFAULT_MODEL}, max tokens: {MAX_TOKENS_PER_REQUEST}")
     
     def create_script_system_prompt(self, podcast_group: PodcastGroup) -> str:
         """Create system prompt for script generation."""
         return f"""
 You are an expert podcast script writer creating engaging, professional podcast content.
+
+⚠️ CRITICAL OUTPUT FORMAT RULE:
+- ONLY output the podcast dialogue script - nothing else!
+- ABSOLUTELY NO <think> tags, <reasoning>, or meta-commentary
+- Do NOT explain your process, choices, or thinking
+- Do NOT include ANY XML tags, markdown, or formatting
+- ONLY provide the final script dialogue
+- Start IMMEDIATELY with "Speaker 1:" and continue from there
+- If you include <think> tags, the script will FAIL completely
 
 PODCAST DETAILS:
 - Name: {podcast_group.name}
@@ -115,12 +142,13 @@ SCRIPT WRITING GUIDELINES:
 1. Write in a conversational, engaging style suitable for audio
 2. Include natural transitions between topics
 3. Start with a compelling introduction
-4. Present information clearly and concisely
-5. Include interesting insights and analysis
-6. End with a strong conclusion
-7. Aim for 8-12 minutes of content (1200-1800 words)
+4. Present information clearly with depth and detail
+5. Include interesting insights, analysis, and expert perspectives
+6. End with a strong, comprehensive conclusion
+7. **TARGET: 15-20 minutes of content (2000-3000 words) - DO NOT make it shorter!**
 8. Use presenter-friendly language (easy to speak)
 9. Include natural pauses and emphasis cues
+10. Cover topics thoroughly - this is a podcast, not a news brief
 
 STYLE REQUIREMENTS:
 - Maintain professional yet conversational tone
@@ -131,56 +159,112 @@ STYLE REQUIREMENTS:
 - Don't include URLs or complex technical references
 - Write for clarity when spoken aloud
 
-FORMAT:
-Write a complete podcast script ready for voice synthesis.
-Include speaker directions in [brackets] where helpful.
-Organize content with clear topic transitions.
+FORMAT - MULTI-SPEAKER DIALOGUE (REQUIRED):
+Write the script as a natural conversation between 2-4 speakers (hosts/guests).
+Each line MUST start with "Speaker 1:", "Speaker 2:", "Speaker 3:", or "Speaker 4:".
+Maximum 4 speakers allowed.
+
+⚠️ CRITICAL: Do NOT use markdown formatting!
+- Write: Speaker 1: (plain text, NO asterisks)
+- NOT: **Speaker 1:** (this breaks the audio generation!)
+- NOT: *Speaker 1:* (no italics either)
+
+Example format (plain text only):
+  Speaker 1: Welcome to today's episode!
+  Speaker 2: Thanks for having me! I'm excited to discuss this topic.
+  Speaker 1: Let's dive right in...
+
+Use Speaker 1 and Speaker 2 as the primary hosts who can discuss topics naturally.
+Add Speaker 3 or Speaker 4 only if truly beneficial for the discussion.
+Create engaging back-and-forth dialogue, not a monologue.
+
+⚠️ REMEMBER: 
+- Output ONLY the script dialogue, starting with "Speaker 1:"
+- NO markdown formatting (no ** or * around Speaker labels)
+- No tags, no explanations
 """
 
-    def create_script_content_prompt(self, articles: List[str], podcast_group: PodcastGroup) -> str:
+    def create_script_content_prompt(self, articles: List[str], podcast_group: PodcastGroup, presenter_names: List[str]) -> str:
         """Create the main content prompt for script generation."""
         articles_text = "\n\n".join([f"Article {i+1}: {article[:1000]}" for i, article in enumerate(articles)])
         
+        # Build presenter info
+        presenter_info = ""
+        if presenter_names:
+            for i, name in enumerate(presenter_names[:4], 1):
+                presenter_info += f"- Speaker {i}: {name}\n"
+        else:
+            presenter_info = "- Speaker 1: Primary Host\n- Speaker 2: Co-Host"
+        
         return f"""
-Create a compelling podcast script based on the following news articles and information:
+Create a compelling IN-DEPTH podcast script based on the following news articles and information:
 
 PODCAST: {podcast_group.name}
 CATEGORY: {podcast_group.category or 'General News'}
 EPISODE FOCUS: Current events and trending topics
 
-SOURCE ARTICLES:
+PRESENTERS (use these names when speakers introduce themselves):
+{presenter_info}
+
+SOURCE ARTICLES (You have {len(articles)} articles to cover):
 {articles_text}
 
 SCRIPT REQUIREMENTS:
-1. Create an engaging opening that introduces the episode theme
-2. Synthesize the key information from all articles into a cohesive narrative
-3. Provide analysis and context, not just summaries
-4. Include smooth transitions between different topics
-5. Maintain listener engagement throughout
-6. End with a memorable conclusion or call-to-action
-7. Target 1200-1800 words for optimal listening experience
-8. Write in a natural speaking style
+1. Create an engaging opening where speakers introduce themselves by name
+2. **COVER ALL ARTICLES IN DEPTH** - don't just summarize, provide analysis
+3. **TARGET LENGTH: 2000-3000 WORDS** for a 15-20 minute episode
+4. Synthesize information from ALL articles into cohesive narrative
+5. Provide detailed analysis, context, and expert insights
+6. Include smooth transitions between different topics
+7. Maintain listener engagement with dynamic dialogue
+8. End with comprehensive summary and call-to-action
+9. Write in a natural speaking style with depth and substance
 
-STRUCTURE SUGGESTION:
-- Opening: Welcome and episode preview (100-150 words)
-- Main Content: Article synthesis and analysis (900-1400 words)
-- Closing: Summary and wrap-up (100-200 words)
+STRUCTURE REQUIREMENT (MULTI-SPEAKER DIALOGUE):
+- Opening: Welcome, speaker introductions by name, episode preview (150-250 words)
+- Main Content: In-depth conversation covering ALL articles (1600-2400 words)
+  * Speakers should naturally exchange detailed thoughts
+  * Cover each article with meaningful discussion (not just headlines)
+  * One speaker introduces a topic, other provides deep analysis
+  * Include questions, answers, and follow-up discussion
+  * Don't rush - give each topic the time it deserves
+  * Aim for 200-400 words per major topic
+- Closing: Comprehensive summary and wrap-up (200-300 words)
 
-Please write the complete podcast script:
+⚠️ DEPTH REQUIREMENTS:
+- Each article should get 150-300 words of discussion
+- Provide context, implications, and analysis
+- Include expert perspectives and insights
+- Connect topics to broader themes
+- Don't just state facts - discuss what they mean
+
+CRITICAL: Every line must start with "Speaker 1:", "Speaker 2:", "Speaker 3:", or "Speaker 4:".
+- Do NOT use names like "Host:", "Guest:", or "Narrator:". Only use "Speaker N:" format.
+- Do NOT use markdown: NO **Speaker 1:** or *Speaker 1:* - use plain "Speaker 1:" only!
+- Do NOT add any formatting, asterisks, or special characters around Speaker labels.
+- Speakers should introduce themselves with their actual names (see PRESENTERS list above)
+
+Please write the complete IN-DEPTH multi-speaker podcast dialogue script (plain text, no markdown, 2000-3000 words):
 """
 
     async def generate_episode_script(
         self,
         request: ScriptGenerationRequest,
-        podcast_group: PodcastGroup
+        podcast_group: PodcastGroup,
+        presenter_names: List[str] = None
     ) -> ScriptGenerationResponse:
         """Generate episode script from articles."""
         
         logger.info(f"Generating script for podcast group: {podcast_group.name}")
         
+        # Get presenter names if not provided
+        if not presenter_names and podcast_group.presenters:
+            presenter_names = [p.name for p in podcast_group.presenters[:4]]
+            logger.info(f"Using presenters: {presenter_names}")
+        
         # Create prompts
         system_prompt = self.create_script_system_prompt(podcast_group)
-        content_prompt = self.create_script_content_prompt(request.articles, podcast_group)
+        content_prompt = self.create_script_content_prompt(request.articles, podcast_group, presenter_names or [])
         
         # Generate script with graceful fallback
         model = DEFAULT_MODEL
@@ -192,6 +276,11 @@ Please write the complete podcast script:
                 prompt=content_prompt,
                 system_prompt=system_prompt
             )
+            
+            # Clean up think tags from response
+            import re
+            script_text = re.sub(r'<think>.*?</think>', '', script_text, flags=re.DOTALL)
+            script_text = script_text.strip()
         except Exception as e:
             logger.warning(f"Ollama script generation failed, using fallback: {e}")
             fallback_used = True
@@ -213,18 +302,24 @@ Please write the complete podcast script:
         )
     
     def _generate_fallback_script(self, articles: List[str], podcast_group: PodcastGroup) -> str:
-        """Generate a basic fallback script when Ollama fails."""
-        intro = f"Welcome to {podcast_group.name}, your source for {podcast_group.category or 'current events'}."
+        """Generate a basic fallback script in multi-speaker format when Ollama fails."""
+        script_lines = []
         
-        content_parts = []
+        # Opening with 2 speakers
+        script_lines.append(f"Speaker 1: Welcome to {podcast_group.name}, your source for {podcast_group.category or 'current events'}.")
+        script_lines.append(f"Speaker 2: Thanks for tuning in! We have some great topics to cover today.")
+        
+        # Content with alternating speakers
         for i, article in enumerate(articles[:3]):  # Limit to first 3 articles
-            article_preview = article[:300] + "..." if len(article) > 300 else article
-            content_parts.append(f"In today's episode, we'll discuss {article_preview}")
+            article_preview = article[:200] + "..." if len(article) > 200 else article
+            speaker_num = (i % 2) + 1  # Alternate between Speaker 1 and Speaker 2
+            script_lines.append(f"Speaker {speaker_num}: Let's discuss this next topic. {article_preview}")
         
-        content = " ".join(content_parts)
-        outro = f"Thank you for listening to {podcast_group.name}. Stay informed and stay engaged."
+        # Closing with both speakers
+        script_lines.append(f"Speaker 1: Thank you for listening to {podcast_group.name}. Stay informed and stay engaged.")
+        script_lines.append(f"Speaker 2: We'll see you next time!")
         
-        return f"{intro}\n\n{content}\n\n{outro}"
+        return "\n".join(script_lines)
 
 
 class MetadataGenerator:
@@ -453,6 +548,49 @@ async def startup_event():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "writer", "timestamp": datetime.utcnow()}
+
+
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Get worker count from environment or default to 1
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+        
+        # Count scripts generated
+        total_episodes = db.query(Episode).count()
+        
+        # Calculate scripts per hour (last 1 hour)
+        from datetime import timedelta
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        scripts_last_hour = db.query(Episode).filter(Episode.created_at >= one_hour_ago).count()
+        
+        # Generate Prometheus format
+        metrics = []
+        metrics.append(f"writer_workers_active {workers_active}")
+        metrics.append(f"writer_episodes_total {total_episodes}")
+        metrics.append(f"writer_scripts_per_hour {scripts_last_hour}")
+        metrics.append("writer_service_up 1")
+        
+        prometheus_output = "\n".join([
+            "# HELP writer_workers_active Number of active workers",
+            "# TYPE writer_workers_active gauge",
+            "# HELP writer_episodes_total Total episodes written",
+            "# TYPE writer_episodes_total gauge",
+            "# HELP writer_scripts_per_hour Scripts generated in the last hour",
+            "# TYPE writer_scripts_per_hour gauge",
+            "# HELP writer_service_up Service health status",
+            "# TYPE writer_service_up gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
 
 
 @app.post("/generate-script", response_model=ScriptGenerationResponse)

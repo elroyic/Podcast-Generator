@@ -577,7 +577,13 @@ async def get_prometheus_metrics():
     """Prometheus-compatible metrics endpoint."""
     from fastapi.responses import PlainTextResponse
     
+    # Get worker count from environment or default to 1
+    workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+    
     metrics = []
+    
+    # Worker metrics
+    metrics.append(f"publishing_workers_active {workers_active}")
     
     # Publishing metrics
     metrics.append(f"publishing_success_total {METRICS_STORAGE['total_published']}")
@@ -593,6 +599,8 @@ async def get_prometheus_metrics():
         metrics.append(f"publishing_last_publish_timestamp {METRICS_STORAGE['last_publish_time']}")
     
     prometheus_output = "\n".join([
+        "# HELP publishing_workers_active Number of active workers",
+        "# TYPE publishing_workers_active gauge",
         "# HELP publishing_success_total Total successful publications",
         "# TYPE publishing_success_total counter",
         "# HELP publishing_failure_total Total failed publications",

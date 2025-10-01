@@ -252,6 +252,63 @@ async def health_check():
     return {"status": "healthy", "service": "news-feed", "timestamp": datetime.utcnow()}
 
 
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Get worker count from environment or default to 1
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+        
+        # Count feeds and articles
+        total_feeds = db.query(NewsFeed).count()
+        active_feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).count()
+        total_articles = db.query(Article).count()
+        
+        # Count articles by reviewer type
+        light_reviewed = db.query(Article).filter(Article.reviewer_type == "light").count()
+        heavy_reviewed = db.query(Article).filter(Article.reviewer_type == "heavy").count()
+        unreviewed = db.query(Article).filter(Article.reviewer_type == None).count()
+        
+        # Calculate articles per hour (last 1 hour)
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        articles_last_hour = db.query(Article).filter(Article.created_at >= one_hour_ago).count()
+        
+        # Generate Prometheus format
+        metrics = []
+        metrics.append(f"news_feed_workers_active {workers_active}")
+        metrics.append(f"news_feed_total {total_feeds}")
+        metrics.append(f"news_feed_active {active_feeds}")
+        metrics.append(f"news_feed_articles_total {total_articles}")
+        metrics.append(f"news_feed_articles_per_hour {articles_last_hour}")
+        metrics.append(f'news_feed_articles_by_reviewer{{type="light"}} {light_reviewed}')
+        metrics.append(f'news_feed_articles_by_reviewer{{type="heavy"}} {heavy_reviewed}')
+        metrics.append(f'news_feed_articles_by_reviewer{{type="unreviewed"}} {unreviewed}')
+        
+        prometheus_output = "\n".join([
+            "# HELP news_feed_workers_active Number of active workers",
+            "# TYPE news_feed_workers_active gauge",
+            "# HELP news_feed_total Total news feeds",
+            "# TYPE news_feed_total gauge",
+            "# HELP news_feed_active Active news feeds",
+            "# TYPE news_feed_active gauge",
+            "# HELP news_feed_articles_total Total articles",
+            "# TYPE news_feed_articles_total gauge",
+            "# HELP news_feed_articles_per_hour Articles fetched in the last hour",
+            "# TYPE news_feed_articles_per_hour gauge",
+            "# HELP news_feed_articles_by_reviewer Articles by reviewer type",
+            "# TYPE news_feed_articles_by_reviewer gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
+
+
 @app.post("/feeds", response_model=NewsFeedSchema)
 async def create_news_feed(
     feed_data: NewsFeedCreate,

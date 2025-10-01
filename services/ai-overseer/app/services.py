@@ -132,7 +132,7 @@ class CadenceManager:
 class ServiceClient:
     """Base client for service communication."""
     
-    def __init__(self, base_url: str, timeout: float = 60.0):
+    def __init__(self, base_url: str, timeout: float = 180.0):
         self.base_url = base_url
         self.timeout = timeout
     
@@ -381,18 +381,26 @@ class PresenterService(ServiceClient):
             logger.error(f"Error generating presenter feedback: {e}")
             raise
     
+
+
+class TTSService(ServiceClient):
+    """Client for TTS Service (VibeVoice audio generation only)."""
+    
+    def __init__(self):
+        super().__init__("http://tts:8015")
+    
     async def generate_audio(
         self,
         episode_id: UUID,
         script: str,
-        presenter_ids: List[UUID]
+        duration_seconds: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Generate audio from script."""
+        """Generate audio from script using VibeVoice."""
         try:
             request_data = {
                 "episode_id": str(episode_id),
                 "script": script,
-                "presenter_ids": [str(pid) for pid in presenter_ids]
+                "duration_seconds": duration_seconds
             }
             
             return await self._make_request("POST", "/generate-audio", json=request_data)
@@ -531,7 +539,7 @@ Generate a complete persona that would be perfect for hosting a {group_category}
             }
             
             # Make a custom request to text generation service
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 response = await client.post(
                     "http://text-generation:8002/generate-script",
                     json=request_data
@@ -611,7 +619,7 @@ Generate a complete persona that would be perfect for hosting a {group_category}
             }
             
             # Make a custom request to text generation service
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 response = await client.post(
                     "http://text-generation:8002/generate-script",
                     json=request_data
@@ -876,6 +884,7 @@ class EpisodeGenerationService:
         self.writer_service = WriterService()
         self.editor_service = EditorService()
         self.presenter_service = PresenterService()
+        self.tts_service = TTSService()
         self.publishing_service = PublishingService()
         self.persona_generation_service = PersonaGenerationService()
         self.cadence_manager = CadenceManager()
@@ -1130,11 +1139,12 @@ class EpisodeGenerationService:
             db.add(metadata)
             db.commit()
             
-            # Step 8: Generate audio
+            # Step 8: Generate audio using dedicated TTS service
             logger.info("Generating audio")
-            presenter_ids = [p.id for p in group.presenters]
-            audio_result = await self.presenter_service.generate_audio(
-                episode.id, script, presenter_ids
+            word_count = len(script.split())
+            duration_seconds = int(word_count / 150 * 60)  # 150 words per minute
+            audio_result = await self.tts_service.generate_audio(
+                episode.id, script, duration_seconds
             )
             
             # Step 8.1: Create AudioFile record

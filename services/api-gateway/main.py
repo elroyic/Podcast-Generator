@@ -412,6 +412,66 @@ async def health_check():
     )
 
 
+@app.get("/metrics")
+async def get_prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Count episodes by status
+        episode_counts = {}
+        for status in ["pending", "generating", "completed", "failed"]:
+            count = db.query(Episode).filter(Episode.status == status).count()
+            episode_counts[status] = count
+        
+        # Count total entities
+        total_groups = db.query(PodcastGroup).count()
+        total_presenters = db.query(Presenter).count()
+        total_writers = db.query(Writer).count()
+        total_feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).count()
+        total_articles = db.query(Article).count()
+        total_collections = db.query(Collection).count()
+        
+        # Generate Prometheus format
+        metrics = []
+        
+        # Episode metrics
+        for status, count in episode_counts.items():
+            metrics.append(f'api_gateway_episodes_total{{status="{status}"}} {count}')
+        
+        # Entity counts
+        metrics.append(f"api_gateway_podcast_groups_total {total_groups}")
+        metrics.append(f"api_gateway_presenters_total {total_presenters}")
+        metrics.append(f"api_gateway_writers_total {total_writers}")
+        metrics.append(f"api_gateway_active_feeds_total {total_feeds}")
+        metrics.append(f"api_gateway_articles_total {total_articles}")
+        metrics.append(f"api_gateway_collections_total {total_collections}")
+        
+        prometheus_output = "\n".join([
+            "# HELP api_gateway_episodes_total Total episodes by status",
+            "# TYPE api_gateway_episodes_total gauge",
+            "# HELP api_gateway_podcast_groups_total Total podcast groups",
+            "# TYPE api_gateway_podcast_groups_total gauge",
+            "# HELP api_gateway_presenters_total Total presenters",
+            "# TYPE api_gateway_presenters_total gauge",
+            "# HELP api_gateway_writers_total Total writers",
+            "# TYPE api_gateway_writers_total gauge",
+            "# HELP api_gateway_active_feeds_total Total active news feeds",
+            "# TYPE api_gateway_active_feeds_total gauge",
+            "# HELP api_gateway_articles_total Total articles",
+            "# TYPE api_gateway_articles_total gauge",
+            "# HELP api_gateway_collections_total Total collections",
+            "# TYPE api_gateway_collections_total gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
+
+
 # Admin Interface
 @app.get("/", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, db: Session = Depends(get_db)):

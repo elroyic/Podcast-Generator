@@ -698,11 +698,22 @@ async def get_prometheus_metrics():
     except Exception:
         pass
     
+    # Worker count from configuration
+    workers_active = 1
+    try:
+        cfg = article_reviewer.get_config()
+        workers_active = cfg.light_workers
+    except Exception:
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+    
     # Confidence histogram
     hist = r.hgetall(article_reviewer.conf_hist) or {}
     
     # Generate Prometheus format
     metrics = []
+    
+    # Worker metrics
+    metrics.append(f"reviewer_workers_active {workers_active}")
     
     # Latency metrics
     if light_latencies:
@@ -730,6 +741,8 @@ async def get_prometheus_metrics():
         metrics.append(f'reviewer_confidence_bucket_total{{bucket="{bucket}"}} {count}')
     
     prometheus_output = "\n".join([
+        "# HELP reviewer_workers_active Number of active reviewer workers",
+        "# TYPE reviewer_workers_active gauge",
         "# HELP reviewer_light_latency_seconds Average latency for light reviewer",
         "# TYPE reviewer_light_latency_seconds gauge",
         "# HELP reviewer_heavy_latency_seconds Average latency for heavy reviewer", 

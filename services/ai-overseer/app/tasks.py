@@ -40,7 +40,7 @@ def _get_ready_collections() -> List[Dict[str, Any]]:
         import httpx
 
         async def _fetch() -> List[Dict[str, Any]]:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 resp = await client.get("http://collections:8011/collections/ready")
                 resp.raise_for_status()
                 return resp.json()
@@ -142,28 +142,23 @@ def _should_release_now_for_bucket(last_episode_time: Optional[datetime], bucket
 
 
 @celery.task(bind=True)
-def generate_episode_for_group(self, group_id: str) -> Dict[str, Any]:
+def generate_episode_for_group(self, group_id: str, collection_id: str = None) -> Dict[str, Any]:
     """Generate a complete episode for a podcast group."""
     task_id = self.request.id
     
     try:
         logger.info(f"Starting episode generation for group {group_id} (task: {task_id})")
+        if collection_id:
+            logger.info(f"Using specified collection: {collection_id}")
         
         # Initialize services
         generation_service = EpisodeGenerationService()
         
         # Generate episode (run async function in sync context)
         import asyncio
-        # If a preferred collection was attached to the task request, pass it through
-        preferred_collection_id = None
-        try:
-            req_kwargs = getattr(self.request, 'kwargs', {}) or {}
-            preferred_collection_id = req_kwargs.get('collection_id')
-        except Exception:
-            preferred_collection_id = None
 
         result = asyncio.run(
-            generation_service.generate_complete_episode(UUID(group_id), collection_id=preferred_collection_id)
+            generation_service.generate_complete_episode(UUID(group_id), collection_id=collection_id)
         )
         
         logger.info(f"Episode generation completed for group {group_id}")
@@ -469,7 +464,7 @@ def send_articles_to_reviewer():
                             response = await client.post(
                                 "http://reviewer:8008/review",
                                 json=review_data,
-                                timeout=30.0
+                                timeout=180.0
                             )
                             response.raise_for_status()
                             
@@ -581,7 +576,7 @@ def health_check_services():
         
         async def check_service(name, url):
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.get(url)
                     health_status[name] = "healthy" if response.status_code == 200 else "unhealthy"
             except Exception as e:

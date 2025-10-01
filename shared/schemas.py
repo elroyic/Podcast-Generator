@@ -260,6 +260,7 @@ class PublishRecord(PublishRecordBase):
 class GenerationRequest(BaseSchema):
     group_id: UUID
     force_regenerate: bool = False
+    collection_id: Optional[UUID] = None
 
 
 class GenerationResponse(BaseSchema):

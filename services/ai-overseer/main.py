@@ -119,8 +119,12 @@ async def generate_episode(
         raise HTTPException(status_code=404, detail="Podcast group not found or inactive")
     
     try:
-        # Queue the episode generation task
-        task = generate_episode_for_group.delay(str(request.group_id))
+        # Queue the episode generation task with optional collection_id
+        kwargs = {}
+        if hasattr(request, 'collection_id') and request.collection_id:
+            kwargs['collection_id'] = str(request.collection_id)
+        
+        task = generate_episode_for_group.apply_async(args=[str(request.group_id)], kwargs=kwargs)
         
         logger.info(f"Queued episode generation for group {request.group_id} (task: {task.id})")
         
@@ -316,7 +320,21 @@ async def get_prometheus_metrics(db: Session = Depends(get_db)):
         # Calculate average generation duration (placeholder - would need tracking)
         avg_duration = 300  # 5 minutes default
         
+        # Get Celery worker count
+        workers_active = 0
+        try:
+            from celery import current_app
+            inspect = current_app.control.inspect()
+            active_workers = inspect.active()
+            workers_active = len(active_workers) if active_workers else 0
+        except Exception as e:
+            logger.warning(f"Could not get Celery worker count: {e}")
+            workers_active = int(os.getenv("CELERY_WORKERS", "1"))
+        
         metrics = []
+        
+        # Worker metrics
+        metrics.append(f"overseer_workers_active {workers_active}")
         
         # Episode totals
         metrics.append(f"overseer_episodes_generated_total {total_episodes}")
@@ -335,6 +353,8 @@ async def get_prometheus_metrics(db: Session = Depends(get_db)):
         metrics.append(f"overseer_generation_duration_seconds {avg_duration}")
         
         prometheus_output = "\n".join([
+            "# HELP overseer_workers_active Number of active Celery workers",
+            "# TYPE overseer_workers_active gauge",
             "# HELP overseer_episodes_generated_total Total episodes generated",
             "# TYPE overseer_episodes_generated_total counter",
             "# HELP overseer_episodes_by_status Episodes by status",

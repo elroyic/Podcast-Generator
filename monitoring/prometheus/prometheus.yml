@@ -29,7 +29,7 @@ scrape_configs:
           tier: 'orchestrator'
 
   - job_name: 'light-reviewer'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['light-reviewer:8000']
         labels:
@@ -37,7 +37,7 @@ scrape_configs:
           tier: 'light'
 
   - job_name: 'heavy-reviewer'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['heavy-reviewer:8000']
         labels:
@@ -46,7 +46,7 @@ scrape_configs:
 
   # News Feed Service
   - job_name: 'news-feed'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['news-feed:8001']
         labels:
@@ -54,7 +54,7 @@ scrape_configs:
 
   # Text Generation Service
   - job_name: 'text-generation'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['text-generation:8002']
         labels:
@@ -62,7 +62,7 @@ scrape_configs:
 
   # Writer Service
   - job_name: 'writer'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['writer:8003']
         labels:
@@ -70,7 +70,7 @@ scrape_configs:
 
   # Presenter Service
   - job_name: 'presenter'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['presenter:8004']
         labels:
@@ -78,7 +78,7 @@ scrape_configs:
 
   # Editor Service
   - job_name: 'editor'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['editor:8009']
         labels:
@@ -86,7 +86,7 @@ scrape_configs:
 
   # Collections Service
   - job_name: 'collections'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['collections:8011']
         labels:
@@ -94,7 +94,7 @@ scrape_configs:
 
   # Publishing Service
   - job_name: 'publishing'
-    metrics_path: '/health'
+    metrics_path: '/metrics/prometheus'
     static_configs:
       - targets: ['publishing:8005']
         labels:

@@ -52,11 +52,12 @@ services:
     ports:
       - "8007:8000"
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=http://ollama-cpu:11434
       - MODEL_NAME=qwen2:0.5b
       - PORT=8000
+      - WORKERS_ACTIVE=1
     depends_on:
-      - ollama
+      - ollama-cpu
     deploy:
       resources:
         limits:
@@ -69,11 +70,12 @@ services:
     ports:
       - "8011:8000"
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - MODEL_NAME=qwen3:4b
+      - OLLAMA_BASE_URL=http://ollama-cpu:11434
+      - MODEL_NAME=qwen2:1.5b
       - PORT=8000
+      - WORKERS_ACTIVE=1
     depends_on:
-      - ollama
+      - ollama-cpu
     deploy:
       resources:
         limits:
@@ -90,16 +92,17 @@ services:
       - PORT=8008
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=http://ollama-cpu:11434
       - LIGHT_REVIEWER_URL=http://light-reviewer:8000
       - HEAVY_REVIEWER_URL=http://heavy-reviewer:8000
       - REVIEWER_CONF_THRESHOLD=0.7
+      - WORKERS_ACTIVE=1
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
+      ollama-cpu:
         condition: service_started
       light-reviewer:
         condition: service_started
@@ -121,6 +124,7 @@ services:
       - REVIEWER_URL=http://reviewer:8008
       - MIN_FEEDS_PER_COLLECTION=3
       - COLLECTION_TTL_HOURS=24
+      - WORKERS_ACTIVE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -140,6 +144,8 @@ services:
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
+      - CELERY_WORKERS=1
+      - WORKERS_ACTIVE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -158,6 +164,7 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
+      - WORKERS_ACTIVE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -188,7 +195,7 @@ services:
       - ./services:/app/services
       - ./shared:/app/shared
 
-  # Writer Service
+  # Writer Service (uses GPU Ollama with gpt-oss-20b for high-quality scripts)
   writer:
     build: ./services/writer
     ports:
@@ -199,6 +206,9 @@ services:
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
       - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3:latest
+      - MAX_TOKENS_PER_REQUEST=5000
+      - WORKERS_ACTIVE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -218,54 +228,69 @@ services:
     environment:
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=http://ollama-cpu:11434
+      - OLLAMA_MODEL=qwen2:1.5b
+      - WORKERS_ACTIVE=1
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
+      ollama-cpu:
         condition: service_started
     volumes:
       - ./services:/app/services
       - ./shared:/app/shared
 
-  # Presenter Service
+  # Presenter Service (Persona briefs/feedback using CPU Ollama - NO TTS!)
   presenter:
     build: ./services/presenter
     ports:
       - "8004:8004"
-    # Allow presenter to use up to 5 CPUs and spawn 5 workers
-    cpus: "5.0"
+    cpus: "2.0"
     command: uvicorn main:app --host 0.0.0.0 --port 8004 --workers 1
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - OLLAMA_BASE_URL=http://ollama-cpu:11434
+      - OLLAMA_MODEL=qwen2:1.5b
+      - USE_VIBEVOICE=false
+      - WORKERS_ACTIVE=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama-cpu:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+      - ./shared:/app/shared
+
+  # TTS Service (VibeVoice audio generation on GPU - ONLY audio!)
+  tts:
+    build: ./services/tts
+    ports:
+      - "8015:8015"
+    cpus: "5.0"
     user: "0"
     environment:
-      - PYTHONPATH=/app:/app/VibeVoice-Community:/app/services/presenter:/app/shared
-      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
-      - REDIS_URL=redis://redis:6379
+      - PYTHONPATH=/app:/app/VibeVoice-Community:/app/services/tts:/app/shared
       - USE_VIBEVOICE=true
       - HF_HOME=/app/.cache/huggingface
       - HF_HUB_ENABLE_HF_TRANSFER=1
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - TTS_BACKEND=hf
       - HF_MODEL_ID=vibevoice/VibeVoice-1.5B
+      - AUDIO_STORAGE_PATH=/app/storage
     deploy:
       resources:
         reservations:
           devices:
             - capabilities: [gpu]
-    # Enable NVIDIA GPU in Compose (Docker Engine with NVIDIA toolkit)
     runtime: nvidia
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     volumes:
+      - ./VibeVoice-Community:/app/VibeVoice-Community:ro
       - ./services:/app/services
       - ./shared:/app/shared
       - storage_data:/app/storage
       - hf_cache:/app/.cache/huggingface
-      - ./VibeVoice-Community:/app/VibeVoice-Community:ro
 
 
   # Publishing Service
@@ -277,6 +302,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - LOCAL_STORAGE_PATH=/app/storage
       - LOCAL_SERVER_URL=http://nginx:8080
+      - WORKERS_ACTIVE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -306,20 +332,47 @@ services:
       - storage_data:/app/storage
 
 
-  # Ollama for local LLM inference
+  # Ollama GPU - For intensive tasks (Writer script generation)
   ollama:
     image: ollama/ollama:latest
-    # Allow Ollama to use up to 5 CPUs
-    cpus: "8.0"
+    cpus: "4.0"
     volumes:
       - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
     environment:
       - OLLAMA_ORIGINS=*
+      - OLLAMA_KEEP_ALIVE=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: "12G"
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    # Enable NVIDIA GPU for intensive tasks
+    runtime: nvidia
+
+  # Ollama CPU - For lighter tasks (Reviewer, Editor)
+  ollama-cpu:
+    image: ollama/ollama:latest
+    cpus: "8.0"
+    volumes:
+      - ollama_cpu_data:/root/.ollama
+    ports:
+      - "11435:11434"
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_KEEP_ALIVE=0
+      - OLLAMA_NUM_PARALLEL=2
     deploy:
       resources:
         limits:
           cpus: "8.0"
-          memory: "16G"
+          memory: "8G"
 
   # Celery Worker
   celery-worker:
@@ -438,6 +491,7 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  ollama_cpu_data:
   storage_data:
   hf_cache:
   prometheus_data:

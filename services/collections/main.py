@@ -472,20 +472,39 @@ class CollectionsManager:
         return [c for c in self.collections.values() if group_id in c.group_ids]
     
     def get_active_collection_for_group(self, group_id: str, db: Session) -> Optional[str]:
-        """Get the active building collection for a group, create one if none exists."""
-        # Check in-memory collections first
-        for collection in self.collections.values():
-            if group_id in collection.group_ids and collection.status == "building":
-                return collection.collection_id
+        """Get the active collection for a group - prioritize ready over building, create one if none exists."""
+        # Check in-memory collections first - prioritize ready over building
+        ready_collection = None
+        building_collection = None
         
-        # Check database for building collections
+        for collection in self.collections.values():
+            if group_id in collection.group_ids:
+                if collection.status == "ready" and not ready_collection:
+                    ready_collection = collection.collection_id
+                elif collection.status == "building" and not building_collection:
+                    building_collection = collection.collection_id
+        
+        # Return ready first, then building
+        if ready_collection:
+            logger.info(f"Found ready collection {ready_collection} for group {group_id}")
+            return ready_collection
+        if building_collection:
+            return building_collection
+        
+        # Check database for ready or building collections
         from uuid import UUID
         group = db.query(PodcastGroup).filter(PodcastGroup.id == UUID(group_id)).first()
         if not group:
             logger.error(f"Group {group_id} not found")
             return None
         
-        # Find building collection for this group
+        # Find ready collection first, then building collection for this group
+        for collection in group.collections:
+            if collection.status == "ready":
+                self._load_collection_into_memory(collection, db)
+                logger.info(f"Found ready collection {collection.id} in DB for group {group_id}")
+                return str(collection.id)
+        
         for collection in group.collections:
             if collection.status == "building":
                 # Load it into memory
@@ -576,6 +595,54 @@ async def health_check():
     }
 
 
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Get worker count from environment or default to 1
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+        
+        # Count collections by status
+        status_counts = {}
+        for status in ["building", "ready", "used", "expired"]:
+            count = db.query(DBCollection).filter(DBCollection.status == status).count()
+            status_counts[status] = count
+        
+        # Total collections
+        total_collections = len(collections_manager.collections)
+        
+        # Generate Prometheus format
+        metrics = []
+        
+        # Worker metrics
+        metrics.append(f"collections_workers_active {workers_active}")
+        
+        # Collection metrics by status
+        for status, count in status_counts.items():
+            metrics.append(f'collections_total{{status="{status}"}} {count}')
+        
+        # Active collections
+        metrics.append(f"collections_active_total {total_collections}")
+        
+        prometheus_output = "\n".join([
+            "# HELP collections_workers_active Number of active workers",
+            "# TYPE collections_workers_active gauge",
+            "# HELP collections_total Total collections by status",
+            "# TYPE collections_total gauge",
+            "# HELP collections_active_total Total active collections in memory",
+            "# TYPE collections_active_total gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
+
+
 @app.post("/collections", response_model=CollectionResponse)
 async def create_collection(request: CollectionCreate, db: Session = Depends(get_db)):
     """Create a new collection."""
@@ -607,13 +674,25 @@ async def list_collections(
     collections = list(collections_manager.collections.values())
     
     if group_id:
-        collections = [c for c in collections if c.group_id == group_id]
+        collections = [c for c in collections if group_id in c.group_ids]  # Fixed: group_ids is a list
     
     if status:
         collections = [c for c in collections if c.status == status]
     
-    # Sort by updated_at descending
-    collections.sort(key=lambda x: x.updated_at, reverse=True)
+    # Sort by updated_at descending - handle timezone-aware and naive datetimes
+    def safe_sort_key(x):
+        try:
+            dt = x.updated_at
+            # If timezone-naive, treat as UTC
+            if dt and dt.tzinfo is None:
+                from datetime import timezone
+                return dt.replace(tzinfo=timezone.utc)
+            return dt if dt else datetime.min.replace(tzinfo=timezone.utc)
+        except:
+            from datetime import timezone
+            return datetime.min.replace(tzinfo=timezone.utc)
+    
+    collections.sort(key=safe_sort_key, reverse=True)
     
     return collections[:limit]
 
