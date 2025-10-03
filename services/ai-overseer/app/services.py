@@ -308,6 +308,7 @@ class EditorService(ServiceClient):
     
     def __init__(self):
         super().__init__("http://editor:8009")
+        super().__init__("http://editor:8009")
     
     async def edit_script(
         self,
@@ -1032,6 +1033,9 @@ class EpisodeGenerationService:
             if not articles:
                 logger.warning("No articles in snapshot, falling back to recent articles")
                 articles = await self.news_feed_service.get_recent_articles(group_id)
+            
+            # Validate minimum article count
+            MIN_FEEDS_REQUIRED = int(os.getenv("MIN_FEEDS_PER_COLLECTION", "3"))
             
             # Validate minimum article count
             MIN_FEEDS_REQUIRED = int(os.getenv("MIN_FEEDS_PER_COLLECTION", "3"))
