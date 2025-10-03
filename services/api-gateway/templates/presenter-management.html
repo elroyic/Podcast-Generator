@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - Presenter Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <a href="/" class="text-xl font-bold text-gray-800">Podcast AI</a>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
+                        <a href="/presenters" class="text-gray-900 font-semibold">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Header -->
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Presenter Management</h2>
+                <div class="flex space-x-3">
+                    <button id="btn-generate-persona" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2 rounded">
+                        <i class="bi bi-robot mr-1"></i> Generate AI Persona
+                    </button>
+                    <button id="btn-new-presenter" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded">
+                        <i class="bi bi-plus-circle mr-1"></i> New Presenter
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-person text-2xl text-blue-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Total Presenters</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="total-presenters">0</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-robot text-2xl text-purple-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">AI Generated</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="ai-presenters">0</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-mic text-2xl text-green-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Active Presenters</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="active-presenters">0</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-graph-up text-2xl text-orange-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Reviews Today</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="reviews-today">0</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Presenters Table -->
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Persona</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Voice Model</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reviews</th>
+                                <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="presenters-body" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit/Create Modal -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-3xl">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 id="modal-title" class="text-lg font-semibold">Edit Presenter</h3>
+                <button id="modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <form id="presenter-form" class="p-4 space-y-4">
+                <input type="hidden" id="presenter-id">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-700">Name</label>
+                        <input id="name" class="mt-1 w-full border rounded px-3 py-2" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700">Status</label>
+                        <select id="status" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm text-gray-700">Persona Description</label>
+                        <textarea id="persona" class="mt-1 w-full border rounded px-3 py-2" rows="3" placeholder="Describe the presenter's personality, speaking style, and expertise..."></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700">Voice Model</label>
+                        <select id="voice_model" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="vibevoice">VibeVoice</option>
+                            <option value="elevenlabs">ElevenLabs</option>
+                            <option value="azure">Azure Speech</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700">LLM Model</label>
+                        <select id="llm_model" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="gpt-oss-20b">GPT-OSS-20B</option>
+                            <option value="qwen3:4b">Qwen3-4B</option>
+                            <option value="llama2:7b">Llama2-7B</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm text-gray-700">System Prompt</label>
+                        <textarea id="system_prompt" class="mt-1 w-full border rounded px-3 py-2" rows="4" placeholder="Custom system prompt for this presenter..."></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700">Review Count</label>
+                        <input type="number" id="review_count" class="mt-1 w-full border rounded px-3 py-2" readonly>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700">Last Review</label>
+                        <input id="last_review" class="mt-1 w-full border rounded px-3 py-2" readonly>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" id="btn-cancel" class="px-4 py-2 rounded border">Cancel</button>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Persona Generation Modal -->
+    <div id="persona-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-4xl">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 class="text-lg font-semibold">Generate AI Presenter Persona</h3>
+                <button id="persona-modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="p-4 space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Podcast Group</label>
+                        <select id="persona-group-id" class="w-full border rounded px-3 py-2">
+                            <option value="">Select a group (optional)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                        <select id="persona-category" class="w-full border rounded px-3 py-2">
+                            <option value="General">General</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Recent Articles Context (Optional)</label>
+                    <textarea id="persona-articles" class="w-full border rounded px-3 py-2" rows="3" placeholder="Enter recent article titles or topics to help generate a more relevant persona..."></textarea>
+                </div>
+
+                <div class="flex justify-end space-x-2">
+                    <button id="btn-cancel-persona" class="px-4 py-2 rounded border">Cancel</button>
+                    <button id="btn-generate-persona-submit" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2 rounded">
+                        <i class="bi bi-robot mr-1"></i> Generate Persona
+                    </button>
+                </div>
+
+                <!-- Generated Persona Preview -->
+                <div id="persona-preview" class="hidden mt-6 p-4 bg-gray-50 rounded-lg">
+                    <h4 class="text-md font-semibold mb-3">Generated Persona Preview</h4>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Name</label>
+                            <div id="preview-name" class="text-sm text-gray-900"></div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Bio</label>
+                            <div id="preview-bio" class="text-sm text-gray-900"></div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Persona</label>
+                            <div id="preview-persona" class="text-sm text-gray-900"></div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Voice Style</label>
+                            <div id="preview-voice-style" class="text-sm text-gray-900"></div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">System Prompt</label>
+                            <div id="preview-system-prompt" class="text-sm text-gray-900 bg-white p-2 rounded border"></div>
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-2 mt-4">
+                        <button id="btn-cancel-preview" class="px-4 py-2 rounded border">Cancel</button>
+                        <button id="btn-save-persona" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded">
+                            <i class="bi bi-check-circle mr-1"></i> Save Presenter
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+        const modal = $('#modal');
+        const modalTitle = $('#modal-title');
+        const form = $('#presenter-form');
+
+        function openModal(title) {
+            modalTitle.textContent = title;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function fetchJSON(url, opts) {
+            const res = await fetch(url, opts);
+            if (!res.ok) throw new Error(await res.text());
+            return await res.json();
+        }
+
+        function renderPresenters(presenters) {
+            const tbody = document.getElementById('presenters-body');
+            tbody.innerHTML = '';
+            
+            for (const p of presenters) {
+                const tr = document.createElement('tr');
+                const isAIGenerated = p.system_prompt && p.system_prompt.includes('You are') && p.persona && p.persona.length > 100;
+                tr.innerHTML = `
+                    <td class="px-4 py-2 text-sm text-gray-900">${p.name || ''}</td>
+                    <td class="px-4 py-2 text-sm">
+                        <span class="px-2 py-1 rounded text-xs ${isAIGenerated ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}">
+                            ${isAIGenerated ? 'AI Generated' : 'Manual'}
+                        </span>
+                    </td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${(p.persona || '').substring(0, 50)}${(p.persona || '').length > 50 ? '...' : ''}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${p.voice_model || 'VibeVoice'}</td>
+                    <td class="px-4 py-2 text-sm">
+                        <span class="px-2 py-1 rounded text-xs ${p.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">${p.status || 'inactive'}</span>
+                    </td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${p.review_count || 0}</td>
+                    <td class="px-4 py-2 text-sm text-right">
+                        <button class="text-indigo-600 hover:text-indigo-900 mr-3" data-action="edit" data-id="${p.id}"><i class="bi bi-pencil-square"></i></button>
+                        <button class="text-red-600 hover:text-red-800" data-action="delete" data-id="${p.id}"><i class="bi bi-trash"></i></button>
+                    </td>`;
+                tbody.appendChild(tr);
+            }
+        }
+
+        async function loadPresenters() {
+            try {
+                const presenters = await fetchJSON('/api/presenters');
+                renderPresenters(presenters);
+                
+                // Update stats
+                $('#total-presenters').textContent = presenters.length;
+                $('#active-presenters').textContent = presenters.filter(p => p.status === 'active').length;
+                $('#reviews-today').textContent = presenters.reduce((sum, p) => sum + (p.review_count || 0), 0);
+                
+                // Count AI-generated presenters
+                const aiPresenters = presenters.filter(p => 
+                    p.system_prompt && p.system_prompt.includes('You are') && p.persona && p.persona.length > 100
+                ).length;
+                $('#ai-presenters').textContent = aiPresenters;
+            } catch (error) {
+                console.error('Error loading presenters:', error);
+            }
+        }
+
+        function fillForm(presenter) {
+            $('#presenter-id').value = presenter?.id || '';
+            $('#name').value = presenter?.name || '';
+            $('#status').value = presenter?.status || 'active';
+            $('#persona').value = presenter?.persona || '';
+            $('#voice_model').value = presenter?.voice_model || 'vibevoice';
+            $('#llm_model').value = presenter?.llm_model || 'gpt-oss-20b';
+            $('#system_prompt').value = presenter?.system_prompt || '';
+            $('#review_count').value = presenter?.review_count || 0;
+            $('#last_review').value = presenter?.last_review || '';
+        }
+
+        function gatherFormData() {
+            return {
+                name: $('#name').value,
+                status: $('#status').value,
+                persona: $('#persona').value,
+                voice_model: $('#voice_model').value,
+                llm_model: $('#llm_model').value,
+                system_prompt: $('#system_prompt').value
+            };
+        }
+
+        // Persona generation functions
+        async function openPersonaModal() {
+            await loadGroupsForPersona();
+            $('#persona-modal').classList.remove('hidden');
+            $('#persona-modal').classList.add('flex');
+            $('#persona-preview').classList.add('hidden');
+        }
+
+        async function loadGroupsForPersona() {
+            try {
+                const response = await fetch('/api/podcast-groups');
+                const groups = await response.json();
+                
+                const groupSelect = $('#persona-group-id');
+                const categorySelect = $('#persona-category');
+                
+                // Clear existing options except first
+                groupSelect.innerHTML = '<option value="">Select a group (optional)</option>';
+                categorySelect.innerHTML = '<option value="General">General</option>';
+                
+                // Add groups
+                groups.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.id;
+                    option.textContent = `${group.name} (${group.category || 'General'})`;
+                    groupSelect.appendChild(option);
+                });
+                
+                // Add unique categories from groups
+                const categories = new Set(['General']);
+                groups.forEach(group => {
+                    if (group.category) {
+                        categories.add(group.category);
+                    }
+                });
+                
+                categories.forEach(category => {
+                    if (category !== 'General') {
+                        const option = document.createElement('option');
+                        option.value = category;
+                        option.textContent = category;
+                        categorySelect.appendChild(option);
+                    }
+                });
+                
+                // Auto-select category when group changes
+                groupSelect.addEventListener('change', (e) => {
+                    const selectedGroup = groups.find(g => g.id === e.target.value);
+                    if (selectedGroup && selectedGroup.category) {
+                        categorySelect.value = selectedGroup.category;
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error loading groups:', error);
+            }
+        }
+
+        function closePersonaModal() {
+            $('#persona-modal').classList.add('hidden');
+            $('#persona-modal').classList.remove('flex');
+            $('#persona-preview').classList.add('hidden');
+        }
+
+        async function generatePersona() {
+            const category = $('#persona-category').value;
+            const groupId = $('#persona-group-id').value;
+            const articles = $('#persona-articles').value;
+            
+            const requestData = {
+                group_id: groupId || '00000000-0000-0000-0000-000000000000', // Default UUID if empty
+                category: category,
+                recent_articles: articles ? articles.split('\n').filter(a => a.trim()) : null
+            };
+
+            try {
+                $('#btn-generate-persona-submit').disabled = true;
+                $('#btn-generate-persona-submit').innerHTML = '<i class="bi bi-hourglass-split mr-1"></i> Generating...';
+                
+                const response = await fetch('/api/presenters/auto-generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                
+                const persona = await response.json();
+                
+                // Show preview
+                $('#preview-name').textContent = persona.name;
+                $('#preview-bio').textContent = persona.bio;
+                $('#preview-persona').textContent = persona.persona;
+                $('#preview-voice-style').textContent = persona.voice_style;
+                $('#preview-system-prompt').textContent = persona.system_prompt;
+                
+                $('#persona-preview').classList.remove('hidden');
+                
+            } catch (error) {
+                console.error('Error generating persona:', error);
+                alert('Error generating persona: ' + error.message);
+            } finally {
+                $('#btn-generate-persona-submit').disabled = false;
+                $('#btn-generate-persona-submit').innerHTML = '<i class="bi bi-robot mr-1"></i> Generate Persona';
+            }
+        }
+
+        async function saveGeneratedPersona() {
+            const persona = {
+                name: $('#preview-name').textContent,
+                bio: $('#preview-bio').textContent,
+                persona: $('#preview-persona').textContent,
+                voice_model: 'vibevoice',
+                llm_model: 'qwen2.5:latest',
+                system_prompt: $('#preview-system-prompt').textContent,
+                status: 'active'
+            };
+
+            try {
+                const response = await fetch('/api/presenters', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(persona)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                
+                closePersonaModal();
+                await loadPresenters();
+                alert('AI presenter persona created successfully!');
+                
+            } catch (error) {
+                console.error('Error saving persona:', error);
+                alert('Error saving persona: ' + error.message);
+            }
+        }
+
+        // Event wiring
+        document.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            
+            if (btn.id === 'btn-generate-persona') {
+                openPersonaModal();
+                return;
+            }
+            
+            if (btn.id === 'btn-new-presenter') {
+                fillForm({});
+                openModal('New Presenter');
+                return;
+            }
+            
+            const id = btn.getAttribute('data-id');
+            const action = btn.getAttribute('data-action');
+            
+            if (action === 'edit') {
+                try {
+                    const presenter = await fetchJSON(`/api/presenters/${id}`);
+                    fillForm(presenter);
+                    openModal('Edit Presenter');
+                } catch (error) {
+                    console.error('Error loading presenter:', error);
+                }
+            } else if (action === 'delete') {
+                if (confirm('Delete this presenter?')) {
+                    try {
+                        await fetch(`/api/presenters/${id}`, { method: 'DELETE' });
+                        await loadPresenters();
+                    } catch (error) {
+                        console.error('Error deleting presenter:', error);
+                    }
+                }
+            } else if (btn.id === 'modal-close' || btn.id === 'btn-cancel') {
+                closeModal();
+            } else if (btn.id === 'persona-modal-close' || btn.id === 'btn-cancel-persona' || btn.id === 'btn-cancel-preview') {
+                closePersonaModal();
+            } else if (btn.id === 'btn-generate-persona-submit') {
+                await generatePersona();
+            } else if (btn.id === 'btn-save-persona') {
+                await saveGeneratedPersona();
+            }
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = $('#presenter-id').value;
+            const data = gatherFormData();
+            const isNew = !id;
+            const method = isNew ? 'POST' : 'PUT';
+            const url = isNew ? '/api/presenters' : `/api/presenters/${id}`;
+            
+            try {
+                const res = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                if (!res.ok) {
+                    throw new Error(await res.text());
+                }
+                
+                closeModal();
+                await loadPresenters();
+            } catch (error) {
+                console.error('Error saving presenter:', error);
+                alert('Error saving presenter: ' + error.message);
+            }
+        });
+
+        // Initialize
+        loadPresenters();
+    </script>
+</body>
+</html>

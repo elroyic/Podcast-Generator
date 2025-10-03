@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - Writers</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <a href="/" class="text-xl font-bold text-gray-800">Podcast AI</a>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
+                        <a href="/writers" class="text-gray-900 font-semibold">Writers</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Writers</h2>
+                <button id="btn-new" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded"><i class="bi bi-plus-circle mr-1"></i> New Writer</button>
+            </div>
+
+            <!-- Writers table -->
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capabilities</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
+                                <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="writers-body" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit/Create Modal -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-2xl">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 id="modal-title" class="text-lg font-semibold">Edit Writer</h3>
+                <button id="modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <form id="writer-form" class="p-4 space-y-4">
+                <input type="hidden" id="writer-id">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-700">Name</label>
+                        <input id="name" class="mt-1 w-full border rounded px-3 py-2" placeholder="Enter writer name" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700">Model</label>
+                        <select id="model" class="mt-1 w-full border rounded px-3 py-2">
+                            <option value="qwen2:0.5b">qwen2:0.5b (352 MB)</option>
+                            <option value="qwen3:4b">qwen3:4b (2.5 GB)</option>
+                            <option value="qwen3:latest">qwen3:latest (5.2 GB)</option>
+                            <option value="qwen2.5:latest">qwen2.5:latest (4.7 GB)</option>
+                            <option value="llama3.1:latest">llama3.1:latest (4.9 GB)</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm text-gray-700">Capabilities</label>
+                        <input id="capabilities" class="mt-1 w-full border rounded px-3 py-2" placeholder="title, description, tags, keywords, category, script (comma separated)">
+                    </div>
+                </div>
+                <div class="flex justify-between pt-2">
+                    <button type="button" id="btn-generate-persona" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                        <i class="bi bi-magic"></i> Generate Persona
+                    </button>
+                    <div class="space-x-2">
+                        <button type="button" id="btn-cancel" class="px-4 py-2 rounded border">Cancel</button>
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded">Save</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+        const modal = $('#modal');
+        const modalTitle = $('#modal-title');
+        const form = $('#writer-form');
+
+        function openModal(title) {
+            modalTitle.textContent = title;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+        function closeModal() {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function toList(value) {
+            if (!value) return [];
+            if (Array.isArray(value)) return value;
+            return String(value).split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        async function fetchJSON(url, opts) {
+            const res = await fetch(url, opts);
+            if (!res.ok) throw new Error(await res.text());
+            return await res.json();
+        }
+
+        function renderWriters(writers) {
+            const tbody = document.getElementById('writers-body');
+            tbody.innerHTML = '';
+            for (const w of writers) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-4 py-2 text-sm text-gray-900">${w.name || ''}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${(w.capabilities || []).join(', ') || 'None'}</td>
+                    <td class="px-4 py-2 text-sm">
+                        <span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800">Active</span>
+                    </td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${w.model || 'Ollama'}</td>
+                    <td class="px-4 py-2 text-sm text-right">
+                        <button class="text-indigo-600 hover:text-indigo-900 mr-3" data-action="edit" data-id="${w.id}"><i class="bi bi-pencil-square"></i></button>
+                        <button class="text-red-600 hover:text-red-800" data-action="delete" data-id="${w.id}"><i class="bi bi-trash"></i></button>
+                    </td>`;
+                tbody.appendChild(tr);
+            }
+        }
+
+        async function loadWriters() {
+            const writers = await fetchJSON('/api/writers');
+            renderWriters(writers);
+        }
+
+        function fillForm(writer) {
+            $('#writer-id').value = writer?.id || '';
+            $('#name').value = writer?.name || '';
+            $('#model').value = writer?.model || 'Ollama';
+            $('#capabilities').value = (writer?.capabilities || []).join(', ');
+        }
+
+        function gatherFormData() {
+            return {
+                name: $('#name').value,
+                model: $('#model').value,
+                capabilities: toList($('#capabilities').value)
+            };
+        }
+
+        // Event wiring
+        document.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            if (btn.id === 'btn-new') {
+                fillForm({});
+                openModal('New Writer');
+                return;
+            }
+            const id = btn.getAttribute('data-id');
+            const action = btn.getAttribute('data-action');
+            if (action === 'edit') {
+                const writer = await fetchJSON(`/api/writers/${id}`);
+                fillForm(writer);
+                openModal('Edit Writer');
+            } else if (action === 'delete') {
+                if (confirm('Delete this writer?')) {
+                    await fetch(`/api/writers/${id}`, { method: 'DELETE' });
+                    await loadWriters();
+                }
+            } else if (btn.id === 'btn-generate-persona') {
+                const category = prompt('Enter category for AI generation (e.g., Technology, Finance):') || 'General';
+                try {
+                    const newWriter = await fetchJSON('/api/writers/auto-generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            group_id: '00000000-0000-0000-0000-000000000000',
+                            category: category,
+                            subcategory: ''
+                        })
+                    });
+                    fillForm({
+                        name: newWriter.name,
+                        model: 'Ollama',
+                        capabilities: newWriter.specialties
+                    });
+                } catch (error) {
+                    alert('Error generating writer: ' + error.message);
+                }
+                return;
+            } else if (btn.id === 'modal-close' || btn.id === 'btn-cancel') {
+                closeModal();
+            }
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = $('#writer-id').value;
+            const data = gatherFormData();
+            const isNew = !id;
+            const method = isNew ? 'POST' : 'PUT';
+            const url = isNew ? '/api/writers' : `/api/writers/${id}`;
+            const body = JSON.stringify(data);
+            const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body });
+            if (!res.ok) {
+                alert('Error saving writer: ' + await res.text());
+                return;
+            }
+            closeModal();
+            await loadWriters();
+        });
+
+        // bootstrap
+        (async function init() {
+            await loadWriters();
+        })();
+    </script>
+</body>
+</html>

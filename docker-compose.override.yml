@@ -1,0 +1,85 @@
+services:
+  news-feed:
+    ports:
+      - 8001:8001
+
+  reviewer:
+    build:
+      context: ./services/reviewer
+      dockerfile: Dockerfile
+    ports:
+      - 8013:8008
+    environment:
+      - PYTHONPATH=/app
+      - PORT=8008
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3:latest
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+    volumes:
+      - ./services/reviewer:/app
+      - ./shared:/app/shared
+
+  editor:
+    build:
+      context: ./services/editor
+      dockerfile: Dockerfile
+    ports:
+      - 8009:8009
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3:latest
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+    volumes:
+      - ./services/editor:/app
+      - ./shared:/app/shared
+
+  collections:
+    build:
+      context: ./services/collections
+      dockerfile: Dockerfile
+    ports:
+      - 8014:8011
+    depends_on:
+      - postgres
+    volumes:
+      - ./services/collections:/app
+      - ./shared:/app/shared
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+
+  ai-overseer:
+    build:
+      context: ./services/ai-overseer
+      dockerfile: Dockerfile
+    command: python main.py
+    ports:
+      - 8012:8006
+    depends_on:
+      - reviewer
+      - editor
+      - collections
+      - news-feed
+    volumes:
+      - ./services/ai-overseer:/app
+      - ./shared:/app/shared
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://ollama:11434
+
+
+

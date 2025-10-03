@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - Reviewer Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <a href="/" class="text-xl font-bold text-gray-800">Podcast AI</a>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/reviewer" class="text-gray-900 font-semibold">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Header -->
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Reviewer Dashboard</h2>
+                <button id="btn-settings" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded">
+                    <i class="bi bi-gear mr-1"></i> Settings
+                </button>
+            </div>
+
+            <!-- Profiling Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <!-- Feeds Processed -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-list-check text-2xl text-blue-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Feeds Processed</dt>
+                                    <dd class="text-lg font-medium text-gray-900">
+                                        <span id="light-count">0</span> Light | <span id="heavy-count">0</span> Heavy
+                                    </dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Average Latency -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-speedometer2 text-2xl text-green-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Avg Latency</dt>
+                                    <dd class="text-lg font-medium text-gray-900">
+                                        <span id="light-latency">0</span>ms Light | <span id="heavy-latency">0</span>ms Heavy
+                                    </dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Success Rate -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-check-circle text-2xl text-green-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Success Rate</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="success-rate">0%</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Queue Length -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-queue text-2xl text-orange-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Queue Length</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="queue-length">0</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Confidence Histogram -->
+            <div class="bg-white shadow rounded-lg p-6 mb-8">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Confidence Distribution (Last 1 Hour)</h3>
+                <div class="h-64">
+                    <canvas id="confidenceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Configuration Panel -->
+            <div class="bg-white shadow rounded-lg p-6 mb-8">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Current Configuration</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Light Threshold</label>
+                        <div class="mt-1">
+                            <span id="conf-threshold" class="text-lg font-semibold">0.40</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Heavy Threshold</label>
+                        <div class="mt-1">
+                            <span id="heavy-conf-threshold" class="text-lg font-semibold">0.70</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Heavy Reviewer</label>
+                        <div class="mt-1">
+                            <span id="heavy-enabled" class="text-lg font-semibold">Enabled</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Light Model</label>
+                        <div class="mt-1">
+                            <span id="light-model" class="text-lg font-semibold">Qwen2-0.5B</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Heavy Model</label>
+                        <div class="mt-1">
+                            <span id="heavy-model" class="text-lg font-semibold">Qwen3-4B</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions Log -->
+            <div class="bg-white shadow rounded-lg p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Recent Activity</h3>
+                <div id="actions-log" class="h-64 overflow-y-auto bg-gray-50 p-4 rounded border font-mono text-sm">
+                    <div class="text-gray-500">Loading activity log...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-2xl">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 class="text-lg font-semibold">Reviewer Settings</h3>
+                <button id="modal-close" class="text-gray-500 hover:text-gray-700">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <form id="settings-form" class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Light Reviewer Threshold</label>
+                    <input type="range" id="conf-threshold-slider" min="0" max="1" step="0.01" value="0.40" class="mt-1 w-full">
+                    <div class="flex justify-between text-xs text-gray-500">
+                        <span>0.00</span>
+                        <span id="threshold-value">0.40</span>
+                        <span>1.00</span>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Heavy Reviewer Threshold</label>
+                    <input type="range" id="heavy-conf-threshold-slider" min="0" max="1" step="0.01" value="0.70" class="mt-1 w-full">
+                    <div class="flex justify-between text-xs text-gray-500">
+                        <span>0.00</span>
+                        <span id="heavy-threshold-value">0.70</span>
+                        <span>1.00</span>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="heavy-enabled-checkbox" checked class="mr-2">
+                        <span class="text-sm font-medium text-gray-700">Enable Heavy Reviewer</span>
+                    </label>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Light Reviewer Model</label>
+                    <select id="light-model-select" class="mt-1 w-full border rounded px-3 py-2">
+                        <option value="qwen2:0.5b">Qwen2-0.5B</option>
+                        <option value="qwen2:1.5b">Qwen2-1.5B</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Heavy Reviewer Model</label>
+                    <select id="heavy-model-select" class="mt-1 w-full border rounded px-3 py-2">
+                        <option value="qwen3:4b">Qwen3-4B</option>
+                        <option value="qwen3:4b-thinking">Qwen3-4B-Thinking</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Light Reviewer Workers</label>
+                    <input type="number" id="light-workers" min="1" max="4" value="2" class="mt-1 w-full border rounded px-3 py-2">
+                </div>
+                
+                <div class="flex justify-end space-x-2 pt-4">
+                    <button type="button" id="btn-cancel" class="px-4 py-2 rounded border">Cancel</button>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+        let confidenceChart;
+        let refreshInterval;
+
+        // Initialize confidence chart
+        function initConfidenceChart() {
+            const ctx = document.getElementById('confidenceChart').getContext('2d');
+            confidenceChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['0.0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0'],
+                    datasets: [{
+                        label: 'Confidence Distribution',
+                        data: [0, 0, 0, 0, 0],
+                        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // Fetch and update metrics
+        async function updateMetrics() {
+            try {
+                const [config, metrics] = await Promise.all([
+                    fetch('/api/reviewer/config').then(r => r.json()),
+                    fetch('/api/reviewer/metrics').then(r => r.json())
+                ]);
+
+                // Update configuration display
+                $('#conf-threshold').textContent = config.conf_threshold.toFixed(2);
+                $('#heavy-conf-threshold').textContent = config.heavy_conf_threshold.toFixed(2);
+                $('#heavy-enabled').textContent = config.heavy_enabled ? 'Enabled' : 'Disabled';
+                $('#light-model').textContent = config.light_model;
+                $('#heavy-model').textContent = config.heavy_model;
+
+                // Update metrics
+                const last1h = metrics.last_1h;
+                $('#light-count').textContent = last1h.total_light;
+                $('#heavy-count').textContent = last1h.total_heavy;
+                $('#light-latency').textContent = Math.round(last1h.avg_latency_ms_light);
+                $('#heavy-latency').textContent = Math.round(last1h.avg_latency_ms_heavy);
+                $('#success-rate').textContent = (last1h.success_rate * 100).toFixed(1) + '%';
+                $('#queue-length').textContent = metrics.queue_length;
+
+                // Update confidence histogram
+                if (confidenceChart) {
+                    const hist = last1h.confidence_histogram || {};
+                    // Backend uses 20 buckets of 0.05; collapse to 5 buckets of 0.20
+                    const buckets20 = Array.from({length: 20}, (_, i) => `bucket_${i}`);
+                    const collapsed = [0,0,0,0,0];
+                    for (let i = 0; i < 20; i++) {
+                        const count = parseInt(hist[buckets20[i]] || 0, 10);
+                        const group = Math.min(4, Math.floor(i / 4)); // 0-3->0, 4-7->1, ... 16-19->4
+                        collapsed[group] += isNaN(count) ? 0 : count;
+                    }
+                    confidenceChart.data.datasets[0].data = collapsed;
+                    confidenceChart.update();
+                }
+
+                // Update queue length color
+                const queueEl = $('#queue-length');
+                if (metrics.queue_length > 50) {
+                    queueEl.className = 'text-lg font-medium text-red-600';
+                } else if (metrics.queue_length > 20) {
+                    queueEl.className = 'text-lg font-medium text-yellow-600';
+                } else {
+                    queueEl.className = 'text-lg font-medium text-green-600';
+                }
+
+                // Update recent activity
+                await updateRecentActivity();
+
+            } catch (error) {
+                console.error('Error updating metrics:', error);
+            }
+        }
+
+        // Update recent activity log
+        async function updateRecentActivity() {
+            try {
+                const response = await fetch('/api/reviewer/queue/status');
+                const status = await response.json();
+                
+                const actionsLog = $('#actions-log');
+                const now = new Date().toLocaleTimeString();
+                
+                // Create activity entries
+                const activities = [];
+                
+                if (status.queue_length > 0) {
+                    activities.push(`[${now}] Queue: ${status.queue_length} items pending`);
+                }
+                
+                if (status.worker_status === 'running') {
+                    activities.push(`[${now}] Worker: Active and processing`);
+                } else {
+                    activities.push(`[${now}] Worker: ${status.worker_status}`);
+                }
+                
+                // Add recent metrics as activity
+                const metricsResponse = await fetch('/api/reviewer/metrics');
+                const metrics = await metricsResponse.json();
+                
+                if (metrics.last_5m.total_light > 0 || metrics.last_5m.total_heavy > 0) {
+                    activities.push(`[${now}] Last 5min: ${metrics.last_5m.total_light} light, ${metrics.last_5m.total_heavy} heavy reviews`);
+                }
+                
+                // Update the log (keep last 10 entries)
+                const existingEntries = actionsLog.innerHTML.split('<br>').filter(line => line.trim());
+                const allEntries = [...activities, ...existingEntries].slice(0, 10);
+                actionsLog.innerHTML = allEntries.join('<br>');
+                
+            } catch (error) {
+                console.error('Error updating activity log:', error);
+                $('#actions-log').innerHTML = '<div class="text-red-500">Error loading activity log</div>';
+            }
+        }
+
+        // Update actions log
+        function updateActionsLog() {
+            const logEl = $('#actions-log');
+            const now = new Date().toLocaleTimeString();
+            logEl.innerHTML = `
+                <div class="text-gray-600">[${now}] Metrics updated</div>
+                <div class="text-gray-600">[${now}] Configuration loaded</div>
+                <div class="text-gray-600">[${now}] Dashboard initialized</div>
+            `;
+        }
+
+        // Modal functions
+        function openSettingsModal() {
+            $('#settings-modal').classList.remove('hidden');
+            $('#settings-modal').classList.add('flex');
+        }
+
+        function closeSettingsModal() {
+            $('#settings-modal').classList.add('hidden');
+            $('#settings-modal').classList.remove('flex');
+        }
+
+        // Load current config into modal
+        async function loadConfigIntoModal() {
+            try {
+                const config = await fetch('/api/reviewer/config').then(r => r.json());
+                $('#conf-threshold-slider').value = config.conf_threshold;
+                $('#threshold-value').textContent = config.conf_threshold.toFixed(2);
+                $('#heavy-conf-threshold-slider').value = config.heavy_conf_threshold;
+                $('#heavy-threshold-value').textContent = config.heavy_conf_threshold.toFixed(2);
+                $('#heavy-enabled-checkbox').checked = config.heavy_enabled;
+                $('#light-model-select').value = config.light_model;
+                $('#heavy-model-select').value = config.heavy_model;
+                $('#light-workers').value = config.light_workers;
+            } catch (error) {
+                console.error('Error loading config:', error);
+            }
+        }
+
+        // Save configuration
+        async function saveConfiguration() {
+            const config = {
+                conf_threshold: parseFloat($('#conf-threshold-slider').value),
+                heavy_conf_threshold: parseFloat($('#heavy-conf-threshold-slider').value),
+                heavy_enabled: $('#heavy-enabled-checkbox').checked,
+                light_model: $('#light-model-select').value,
+                heavy_model: $('#heavy-model-select').value,
+                light_workers: parseInt($('#light-workers').value)
+            };
+
+            try {
+                const response = await fetch('/api/reviewer/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                if (response.ok) {
+                    // Show success toast
+                    showToast('Configuration saved successfully', 'success');
+                    closeSettingsModal();
+                    await updateMetrics();
+                } else {
+                    throw new Error('Failed to save configuration');
+                }
+            } catch (error) {
+                console.error('Error saving config:', error);
+                showToast('Failed to save configuration', 'error');
+            }
+        }
+
+        // Show toast notification
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 px-4 py-2 rounded text-white z-50 ${
+                type === 'success' ? 'bg-green-600' : 
+                type === 'error' ? 'bg-red-600' : 'bg-blue-600'
+            }`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 3000);
+        }
+
+        // Event listeners
+        document.addEventListener('click', (e) => {
+            if (e.target.id === 'btn-settings') {
+                loadConfigIntoModal();
+                openSettingsModal();
+            } else if (e.target.id === 'modal-close' || e.target.id === 'btn-cancel') {
+                closeSettingsModal();
+            }
+        });
+
+        $('#settings-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            saveConfiguration();
+        });
+
+        $('#conf-threshold-slider').addEventListener('input', (e) => {
+            $('#threshold-value').textContent = parseFloat(e.target.value).toFixed(2);
+        });
+
+        $('#heavy-conf-threshold-slider').addEventListener('input', (e) => {
+            $('#heavy-threshold-value').textContent = parseFloat(e.target.value).toFixed(2);
+        });
+
+        // Initialize dashboard
+        async function init() {
+            initConfidenceChart();
+            await updateMetrics();
+            updateActionsLog();
+            
+            // Set up auto-refresh
+            refreshInterval = setInterval(updateMetrics, 15000); // Refresh every 15 seconds
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

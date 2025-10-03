@@ -563,6 +563,53 @@ async def health_check():
     return {"status": "healthy", "service": "publishing", "timestamp": datetime.utcnow()}
 
 
+# Global metrics storage (in production, would use Redis or proper metrics store)
+METRICS_STORAGE = {
+    "total_published": 0,
+    "total_failures": 0,
+    "platform_stats": {},
+    "last_publish_time": None
+}
+
+
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    metrics = []
+    
+    # Publishing metrics
+    metrics.append(f"publishing_success_total {METRICS_STORAGE['total_published']}")
+    metrics.append(f"publishing_failure_total {METRICS_STORAGE['total_failures']}")
+    
+    # Platform-specific metrics
+    for platform, stats in METRICS_STORAGE["platform_stats"].items():
+        metrics.append(f'publishing_platform_success_total{{platform="{platform}"}} {stats.get("success", 0)}')
+        metrics.append(f'publishing_platform_failure_total{{platform="{platform}"}} {stats.get("failure", 0)}')
+    
+    # Last publish timestamp
+    if METRICS_STORAGE["last_publish_time"]:
+        metrics.append(f"publishing_last_publish_timestamp {METRICS_STORAGE['last_publish_time']}")
+    
+    prometheus_output = "\n".join([
+        "# HELP publishing_success_total Total successful publications",
+        "# TYPE publishing_success_total counter",
+        "# HELP publishing_failure_total Total failed publications",
+        "# TYPE publishing_failure_total counter",
+        "# HELP publishing_platform_success_total Platform-specific successful publications",
+        "# TYPE publishing_platform_success_total counter",
+        "# HELP publishing_platform_failure_total Platform-specific failed publications",
+        "# TYPE publishing_platform_failure_total counter",
+        "# HELP publishing_last_publish_timestamp Last publish timestamp",
+        "# TYPE publishing_last_publish_timestamp gauge",
+        "",
+        *metrics
+    ])
+    
+    return PlainTextResponse(prometheus_output, media_type="text/plain")
+
+
 @app.post("/publish", response_model=PublishResponse)
 async def publish_episode(
     request: PublishRequest,

@@ -1,5 +1,6 @@
 """
 News Feed Service - Handles RSS/MCP feed fetching and article storage.
+Enhanced with Redis-backed deduplication fingerprints to reduce reviewer load.
 """
 import asyncio
 import logging
@@ -12,6 +13,11 @@ import httpx
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+import os
+import hashlib
+import redis
+import re
+from bs4 import BeautifulSoup
 
 from shared.database import get_db, create_tables
 from shared.models import NewsFeed, Article, FeedType
@@ -28,10 +34,86 @@ app = FastAPI(title="News Feed Service", version="1.0.0")
 async def startup_event():
     create_tables()
     logger.info("News Feed Service started")
+    # Initialize Redis for deduplication metrics
+    global redis_client
+    try:
+        redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+    except Exception as e:
+        redis_client = None
+        logger.warning(f"Redis unavailable for dedup: {e}")
 
 
 class NewsFeedProcessor:
     """Handles RSS feed processing and article extraction."""
+    
+    @staticmethod
+    async def fetch_full_article_content(article_url: str) -> str:
+        """Fetch full article content from the article URL."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                # Add headers to appear as a regular browser
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                }
+                
+                response = await client.get(article_url, headers=headers)
+                response.raise_for_status()
+                
+                # Parse HTML content
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Remove script and style elements
+                for script in soup(["script", "style", "nav", "footer", "aside", "header"]):
+                    script.decompose()
+                
+                # Try to find the main article content
+                article_content = ""
+                
+                # Common selectors for article content
+                content_selectors = [
+                    'article',
+                    '.article-content',
+                    '.post-content',
+                    '.entry-content',
+                    '.content',
+                    '.story-content',
+                    '.article-body',
+                    '.post-body',
+                    '[role="main"]',
+                    'main',
+                    '.main-content'
+                ]
+                
+                for selector in content_selectors:
+                    content_elem = soup.select_one(selector)
+                    if content_elem:
+                        article_content = content_elem.get_text(separator=' ', strip=True)
+                        break
+                
+                # If no specific content found, try to get body text
+                if not article_content:
+                    body = soup.find('body')
+                    if body:
+                        article_content = body.get_text(separator=' ', strip=True)
+                
+                # Clean up the content
+                if article_content:
+                    # Remove extra whitespace
+                    article_content = re.sub(r'\s+', ' ', article_content)
+                    # Limit content length to prevent extremely long articles
+                    if len(article_content) > 10000:
+                        article_content = article_content[:10000] + "..."
+                
+                return article_content
+                
+        except Exception as e:
+            logger.warning(f"Error fetching full content from {article_url}: {e}")
+            return ""
     
     @staticmethod
     async def fetch_rss_feed(feed_url: str) -> List[dict]:
@@ -46,11 +128,28 @@ class NewsFeedProcessor:
                 
                 articles = []
                 for entry in parsed.entries:
+                    # Get basic article info
+                    title = entry.get("title", "")
+                    link = entry.get("link", "")
+                    summary = entry.get("summary", "") or entry.get("description", "")
+                    rss_content = entry.get("content", [{}])[0].get("value", "") if entry.get("content") else ""
+                    
+                    # If we have a link but limited content, try to fetch full content
+                    full_content = rss_content
+                    if link and (not rss_content or len(rss_content) < 500):
+                        try:
+                            full_content = await NewsFeedProcessor.fetch_full_article_content(link)
+                            if full_content and len(full_content) > len(rss_content):
+                                logger.info(f"Fetched full content for {title[:50]}... ({len(full_content)} chars)")
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch full content for {link}: {e}")
+                            full_content = rss_content
+                    
                     article = {
-                        "title": entry.get("title", ""),
-                        "link": entry.get("link", ""),
-                        "summary": entry.get("summary", "") or entry.get("description", ""),
-                        "content": entry.get("content", [{}])[0].get("value", "") if entry.get("content") else "",
+                        "title": title,
+                        "link": link,
+                        "summary": summary,
+                        "content": full_content,
                         "publish_date": None
                     }
                     
@@ -294,6 +393,68 @@ async def get_recent_articles(
         .order_by(Article.publish_date.desc()).limit(limit).all()
 
 
+@app.post("/articles/send-to-reviewer")
+async def send_unreviewed_articles_to_reviewer(
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """Send unreviewed articles to the reviewer service."""
+    # Find articles that haven't been reviewed yet (no review_tags or confidence)
+    unreviewed_articles = db.query(Article).filter(
+        Article.review_tags.is_(None)
+    ).order_by(Article.created_at.desc()).limit(limit).all()
+    
+    sent_count = 0
+    failed_count = 0
+    
+    for article in unreviewed_articles:
+        try:
+            await send_article_to_reviewer(article)
+            sent_count += 1
+        except Exception as e:
+            logger.error(f"Failed to send article {article.id} to reviewer: {e}")
+            failed_count += 1
+    
+    return {
+        "message": f"Sent {sent_count} articles to reviewer, {failed_count} failed",
+        "sent": sent_count,
+        "failed": failed_count,
+        "total_unreviewed": len(unreviewed_articles)
+    }
+
+
+async def send_article_to_reviewer(article: Article):
+    """Send a new article to the reviewer service for processing."""
+    try:
+        reviewer_url = os.getenv("REVIEWER_SERVICE_URL", "http://reviewer:8008")
+        
+        # Prepare article data for reviewer
+        article_data = {
+            "feed_id": str(article.feed_id),
+            "title": article.title,
+            "url": article.link,
+            "content": article.content or article.summary or "",
+            "published": article.publish_date.isoformat() if article.publish_date else datetime.utcnow().isoformat()
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Use the queue-based endpoint if available, otherwise direct review
+            try:
+                response = await client.post(f"{reviewer_url}/enqueue", json=article_data)
+                response.raise_for_status()
+                logger.info(f"✅ Enqueued article for review: {article.title[:50]}...")
+            except Exception as queue_error:
+                logger.warning(f"Queue failed, trying direct review: {queue_error}")
+                # Fallback to direct review endpoint
+                response = await client.post(f"{reviewer_url}/review", json=article_data)
+                response.raise_for_status()
+                logger.info(f"✅ Directly reviewed article: {article.title[:50]}...")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to send article to reviewer: {e}")
+        # Don't fail the entire process if reviewer is down
+
+
 async def fetch_feed_articles(feed_id: UUID):
     """Background task to fetch articles from a feed."""
     db = next(get_db())
@@ -313,7 +474,7 @@ async def fetch_feed_articles(feed_id: UUID):
             logger.error(f"Unknown feed type: {feed.type}")
             return
         
-        # Store new articles
+        # Store new articles with deduplication
         new_articles_count = 0
         for article_data in articles_data:
             # Check if article already exists
@@ -325,16 +486,57 @@ async def fetch_feed_articles(feed_id: UUID):
             ).first()
             
             if not existing:
-                article = Article(
-                    feed_id=feed_id,
-                    title=article_data["title"],
-                    link=article_data["link"],
-                    summary=article_data["summary"],
-                    content=article_data["content"],
-                    publish_date=article_data["publish_date"]
-                )
-                db.add(article)
-                new_articles_count += 1
+                # Compute fingerprint and check Redis set
+                try:
+                    pub_iso = article_data.get("publish_date").isoformat() if article_data.get("publish_date") else ""
+                except Exception:
+                    pub_iso = ""
+                fp_src = f"{article_data['link']}|{article_data['title']}|{pub_iso}"
+                fp = hashlib.sha256(fp_src.encode("utf-8", errors="ignore")).hexdigest()
+
+                allow_insert = True
+                try:
+                    dedup_enabled = os.getenv("DEDUP_ENABLED", "true").lower() in ("1", "true", "yes")
+                    if dedup_enabled and redis_client:
+                        fp_key = "reviewer:fingerprints"
+                        if redis_client.sismember(fp_key, fp):
+                            # Record duplicate event timestamp for metrics windowing
+                            try:
+                                redis_client.lpush("reviewer:duplicates:events", str(int(datetime.utcnow().timestamp())))
+                                redis_client.ltrim("reviewer:duplicates:events", 0, 99999)
+                            except Exception:
+                                pass
+                            logger.info(f"Duplicate filtered (fingerprint) for link={article_data['link']}")
+                            allow_insert = False
+                        else:
+                            redis_client.sadd(fp_key, fp)
+                            # Ensure TTL on the set key (approximate)
+                            try:
+                                redis_client.expire(fp_key, int(os.getenv("DEDUP_TTL", "2592000")))
+                            except Exception:
+                                pass
+                except Exception as e:
+                    logger.warning(f"Dedup check failed; proceeding: {e}")
+
+                if allow_insert:
+                    article = Article(
+                        feed_id=feed_id,
+                        title=article_data["title"],
+                        link=article_data["link"],
+                        summary=article_data["summary"],
+                        content=article_data["content"],
+                        publish_date=article_data["publish_date"]
+                    )
+                    try:
+                        article.fingerprint = fp
+                    except Exception:
+                        pass
+                    db.add(article)
+                    db.flush()  # Ensure article has an ID
+                    new_articles_count += 1
+                    
+                    # Automatically send new article to reviewer service
+                    await send_article_to_reviewer(article)
         
         # Update last_fetched timestamp
         feed.last_fetched = datetime.utcnow()

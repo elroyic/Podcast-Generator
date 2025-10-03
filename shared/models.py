@@ -33,6 +33,13 @@ news_feed_assignment = Table(
     Column('feed_id', PGUUID(as_uuid=True), ForeignKey('news_feeds.id'), primary_key=True)
 )
 
+collection_group_assignment = Table(
+    'collection_group_assignment',
+    Base.metadata,
+    Column('collection_id', PGUUID(as_uuid=True), ForeignKey('collections.id'), primary_key=True),
+    Column('group_id', PGUUID(as_uuid=True), ForeignKey('podcast_groups.id'), primary_key=True)
+)
+
 episode_article_link = Table(
     'episode_article_link',
     Base.metadata,
@@ -81,6 +88,7 @@ class PodcastGroup(Base):
     episodes = relationship("Episode", back_populates="podcast_group")
     writer = relationship("Writer", back_populates="podcast_groups")
     news_feeds = relationship("NewsFeed", secondary=news_feed_assignment, back_populates="podcast_groups")
+    collections = relationship("Collection", secondary=collection_group_assignment, back_populates="podcast_groups")
 
 
 class Presenter(Base):
@@ -98,6 +106,13 @@ class Presenter(Base):
     interests = Column(ARRAY(String))
     country = Column(String(100))
     city = Column(String(100))
+    status = Column(String(20), default='active')
+    persona = Column(Text)
+    voice_model = Column(String(100), default='vibevoice')
+    llm_model = Column(String(100), default='gpt-oss-20b')
+    system_prompt = Column(Text)
+    review_count = Column(Integer, default=0)
+    last_review = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -148,9 +163,20 @@ class Article(Base):
     publish_date = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Reviewer enhancement fields
+    fingerprint = Column(String(128))  # SHA-256 hex of source_url|title|published
+    reviewer_type = Column(String(10))  # 'light' | 'heavy'
+    review_tags = Column(ARRAY(String))  # tags assigned by reviewer
+    review_summary = Column(Text)  # concise reviewer summary
+    confidence = Column(Float)  # 0..1 confidence from reviewer
+    processed_at = Column(DateTime(timezone=True))  # when review stored
+    review_metadata = Column(JSON)  # auxiliary metadata (model, fallback, timings, etc.)
+    collection_id = Column(PGUUID(as_uuid=True), ForeignKey('collections.id'))
+
     # Relationships
     news_feed = relationship("NewsFeed", back_populates="articles")
     episodes = relationship("Episode", secondary=episode_article_link, back_populates="articles")
+    collection = relationship("Collection", back_populates="articles")
 
 
 class Episode(Base):
@@ -185,6 +211,21 @@ class EpisodeMetadata(Base):
 
     # Relationships
     episode = relationship("Episode", back_populates="episode_metadata")
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    status = Column(String(20), default='processing')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    podcast_groups = relationship("PodcastGroup", secondary=collection_group_assignment, back_populates="collections")
+    articles = relationship("Article", back_populates="collection")
 
 
 class AudioFile(Base):

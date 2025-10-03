@@ -6,8 +6,14 @@ pydantic==2.5.0
 httpx==0.25.2
 requests==2.31.0
 python-dotenv==1.0.0
-torch==2.1.0
-transformers==4.35.0
+# torch comes from the CUDA-enabled base image; do not install CPU-only torch here
+# torch==2.1.0
+# Updated Transformers stack for VibeVoice HF model
+transformers>=4.42.0
+accelerate>=0.33.0
+safetensors>=0.4.3
+sentencepiece>=0.2.0
+diffusers>=0.27.0
 librosa==0.10.1
 soundfile==0.12.1
 numpy==1.24.3

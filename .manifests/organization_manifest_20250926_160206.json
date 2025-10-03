@@ -1,0 +1,174 @@
+{
+  "created_at": "2025-09-26T16:02:06.462876",
+  "repo_root": "G:\\AI Projects\\Podcast Generator",
+  "moves": [
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\bug_log.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\bug_log.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\how \uf03a2\uf03aReadme.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\how \uf03a2\uf03aReadme.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\README.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\README.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\README_COMPLETE_SYSTEM.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\README_COMPLETE_SYSTEM.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\requirements.txt",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\requirements.txt"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_group_id.txt",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\test_group_id.txt"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\Local-Hosting.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\Local-Hosting.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\mermaid.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\mermaid.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\OverseerSchedulerUpdate.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\OverseerSchedulerUpdate.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\Requirements Diagram.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\Requirements Diagram.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\Requirements v0.1.txt",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\Requirements v0.1.txt"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\Requirements.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\Requirements.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\ReviewerEnhancement.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\ReviewerEnhancement.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\Workflow.md",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\Workflow.md"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\Docs\\Workflowtxt.txt",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Docs\\Current\\Workflowtxt.txt"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_api_gateway_audio.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_api_gateway_audio.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_complete_episode.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_complete_episode.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_complete_podcast_chain.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_complete_podcast_chain.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_complete_workflow.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_complete_workflow.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_direct_audio_generation.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_direct_audio_generation.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_episode_generation.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_episode_generation.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_full_system.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_full_system.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_long_script.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_long_script.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_main_application.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_main_application.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_manual_episode.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_manual_episode.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_podcast_generation.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_podcast_generation.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_qwen_podcast.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_qwen_podcast.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_simple_services.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_simple_services.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_system.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_system.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_vibevoice.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_vibevoice.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\test_with_database.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\Tests\\Current\\test_with_database.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\ai-overseer\\main_enhanced.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\ai-overseer\\archive\\main_enhanced.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\api-gateway\\main_hybrid.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\api-gateway\\archive\\main_hybrid.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\main_mp3.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\archive\\main_mp3.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\main_mp3_simple.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\archive\\main_mp3_simple.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\main_persona.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\archive\\main_persona.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\main_real_vibevoice.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\archive\\main_real_vibevoice.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\main_vibevoice.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\archive\\main_vibevoice.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\main_wav_backup.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\archive\\main_wav_backup.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\main_working_tts.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\presenter\\archive\\main_working_tts.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\publishing\\main_simple.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\publishing\\archive\\main_simple.py"
+    },
+    {
+      "source": "G:\\AI Projects\\Podcast Generator\\services\\writer\\main_script.py",
+      "destination": "G:\\AI Projects\\Podcast Generator\\services\\writer\\archive\\main_script.py"
+    }
+  ]
+}

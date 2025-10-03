@@ -58,6 +58,13 @@ class PresenterUpdate(PresenterBase):
 
 class Presenter(PresenterBase):
     id: UUID
+    status: Optional[str] = "active"
+    persona: Optional[str] = None
+    voice_model: Optional[str] = "vibevoice"
+    llm_model: Optional[str] = "gpt-oss-20b"
+    system_prompt: Optional[str] = None
+    review_count: Optional[int] = 0
+    last_review: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -107,6 +114,8 @@ class NewsFeed(NewsFeedBase):
     last_fetched: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    # Computed fields (not persisted)
+    article_count: Optional[int] = None
 
 
 # Article schemas
@@ -158,7 +167,7 @@ class PodcastGroupUpdate(PodcastGroupBase):
 
 class PodcastGroup(PodcastGroupBase):
     id: UUID
-    writer_id: UUID
+    writer_id: Optional[UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     presenters: List[Presenter] = []

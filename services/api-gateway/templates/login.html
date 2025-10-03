@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white shadow rounded-lg p-8 w-full max-w-sm">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6 text-center">Admin Login</h1>
+        <form id="login-form" class="space-y-4">
+            <div>
+                <label class="block text-sm text-gray-700">Username</label>
+                <input id="username" class="mt-1 w-full border rounded px-3 py-2" placeholder="admin" value="admin">
+            </div>
+            <div>
+                <label class="block text-sm text-gray-700">Password</label>
+                <input id="password" type="password" class="mt-1 w-full border rounded px-3 py-2" placeholder="••••••••" value="admin123">
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded">Sign In</button>
+            <p id="error" class="text-sm text-red-600 mt-2 hidden"></p>
+        </form>
+    </div>
+
+    <script>
+        const form = document.getElementById('login-form');
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const err = document.getElementById('error');
+            err.classList.add('hidden');
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                if (!res.ok) {
+                    throw new Error(await res.text());
+                }
+                // Cookie is set by server; redirect home
+                window.location.href = '/';
+            } catch (e) {
+                err.textContent = 'Login failed';
+                err.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
+
+

@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - Collections Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <h1 class="text-xl font-bold text-gray-800">Podcast AI</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
+                        <a href="/collections" class="text-gray-900 font-semibold">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <div class="px-4 py-5 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-800">Collections Dashboard</h2>
+                <p class="mt-1 max-w-2xl text-sm text-gray-500">Manage article collections for podcast generation</p>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-collection text-2xl text-blue-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Total Collections</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="total-collections">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-check-circle text-2xl text-green-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Ready Collections</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="ready-collections">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-clock text-2xl text-yellow-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Processing</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="processing-collections">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-newspaper text-2xl text-purple-600"></i>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Total Articles</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="total-articles">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collections Table -->
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Article Collections</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Collections of reviewed articles ready for podcast generation</p>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Collection ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Articles</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="collections-table" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                    <div class="flex items-center justify-center">
+                                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                        <span class="ml-2">Loading collections...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Collection Details Modal -->
+            <div id="collection-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+                <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+                    <div class="mt-3">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-medium text-gray-900">Collection Details</h3>
+                            <button onclick="closeCollectionModal()" class="text-gray-400 hover:text-gray-600">
+                                <i class="bi bi-x-lg text-xl"></i>
+                            </button>
+                        </div>
+                        <div id="collection-details" class="space-y-4">
+                            <!-- Collection details will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="mt-8 bg-white shadow rounded-lg p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <button onclick="createNewCollection()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-plus-circle mr-2"></i>Create Collection
+                    </button>
+                    <button onclick="refreshCollections()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-arrow-clockwise mr-2"></i>Refresh
+                    </button>
+                    <button onclick="viewCollectionStats()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-graph-up mr-2"></i>View Stats
+                    </button>
+                    <button onclick="exportCollections()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-download mr-2"></i>Export
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Collection Modal -->
+    <div id="create-collection-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Create New Collection</h3>
+                <form id="create-collection-form">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700">Name</label>
+                        <input type="text" id="new-collection-name" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700">Description</label>
+                        <textarea id="new-collection-description" rows="3" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></textarea>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700">Assign to Podcast Groups (Optional)</label>
+                        <select id="new-collection-groups" multiple class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            <!-- Groups will be loaded here -->
+                        </select>
+                        <p class="mt-1 text-sm text-gray-500">Hold Ctrl/Cmd to select multiple groups</p>
+                    </div>
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" onclick="closeCreateModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            Create
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Collection Modal -->
+    <div id="edit-collection-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Edit Collection</h3>
+                <form id="edit-collection-form">
+                    <input type="hidden" id="edit-collection-id">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700">Name</label>
+                        <input type="text" id="edit-collection-name" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700">Description</label>
+                        <textarea id="edit-collection-description" rows="3" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></textarea>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700">Assign to Podcast Groups</label>
+                        <select id="edit-collection-groups" multiple class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                            <!-- Groups will be loaded here -->
+                        </select>
+                        <p class="mt-1 text-sm text-gray-500">Hold Ctrl/Cmd to select multiple groups</p>
+                    </div>
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" onclick="closeEditModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Modal -->
+    <div id="stats-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-2/3 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Collection Statistics</h3>
+                <div id="detailed-stats" class="space-y-4">
+                    <!-- Detailed stats will be loaded here -->
+                </div>
+                <div class="flex justify-end mt-6">
+                    <button onclick="closeStatsModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadCollectionStats() {
+            try {
+                const response = await fetch('/api/collections/stats');
+                const stats = await response.json();
+                
+                document.getElementById('total-collections').textContent = stats.total_collections || 0;
+                document.getElementById('ready-collections').textContent = stats.ready_collections || 0;
+                document.getElementById('processing-collections').textContent = stats.processing_collections || 0;
+                document.getElementById('total-articles').textContent = stats.total_articles || 0;
+                
+            } catch (error) {
+                console.error('Error loading collection stats:', error);
+                document.getElementById('total-collections').textContent = 'Error';
+                document.getElementById('ready-collections').textContent = 'Error';
+                document.getElementById('processing-collections').textContent = 'Error';
+                document.getElementById('total-articles').textContent = 'Error';
+            }
+        }
+
+        async function loadCollections() {
+            try {
+                const response = await fetch('/api/collections');
+                const collections = await response.json();
+                
+                const tableBody = document.getElementById('collections-table');
+                
+                if (collections.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                No collections found. Create your first collection!
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+                
+                tableBody.innerHTML = collections.map(collection => `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${collection.id.substring(0, 8)}...
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            ${collection.group_names && collection.group_names.length > 0 ? collection.group_names.join(', ') : 'Independent'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                collection.status === 'ready' ? 'bg-green-100 text-green-800' :
+                                collection.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                                collection.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                            }">
+                                ${collection.status}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${collection.article_count || 0}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(collection.created_at).toLocaleDateString()}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="viewCollection('${collection.id}')" class="text-blue-600 hover:text-blue-900 mr-2">
+                                <i class="bi bi-eye"></i> View
+                            </button>
+                            <button onclick="editCollection('${collection.id}')" class="text-green-600 hover:text-green-900 mr-2">
+                                <i class="bi bi-pencil"></i> Edit
+                            </button>
+                            <button onclick="sendToPresenter('${collection.id}')" class="text-purple-600 hover:text-purple-900 mr-2" title="Send to Presenter">
+                                <i class="bi bi-mic"></i>
+                            </button>
+                            <button onclick="sendToWriter('${collection.id}')" class="text-orange-600 hover:text-orange-900" title="Send to Writer">
+                                <i class="bi bi-pen"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading collections:', error);
+                document.getElementById('collections-table').innerHTML = `
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 text-center text-red-500">
+                            Error loading collections: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        async function viewCollection(collectionId) {
+            try {
+                const response = await fetch(`/api/collections/${collectionId}`);
+                const collection = await response.json();
+                
+                const detailsDiv = document.getElementById('collection-details');
+                detailsDiv.innerHTML = `
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Collection ID</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.id}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Status</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.status}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Group</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.group_names && collection.group_names.length > 0 ? collection.group_names.join(', ') : 'Independent'}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Articles</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.article_count || 0}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Created</label>
+                            <p class="mt-1 text-sm text-gray-900">${new Date(collection.created_at).toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Updated</label>
+                            <p class="mt-1 text-sm text-gray-900">${collection.updated_at ? new Date(collection.updated_at).toLocaleString() : 'Never'}</p>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700">Articles</label>
+                        <div class="mt-2 max-h-64 overflow-y-auto border rounded-md p-3">
+                            ${collection.articles ? collection.articles.map(article => `
+                                <div class="border-b pb-2 mb-2 last:border-b-0">
+                                    <h4 class="font-medium text-sm">${article.title}</h4>
+                                    <p class="text-xs text-gray-500">${article.feed_name} • ${new Date(article.publish_date).toLocaleDateString()}</p>
+                                    <p class="text-xs text-gray-600 mt-1">${article.summary}</p>
+                                </div>
+                            `).join('') : '<p class="text-gray-500">No articles in this collection</p>'}
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('collection-modal').classList.remove('hidden');
+                
+            } catch (error) {
+                console.error('Error loading collection details:', error);
+                alert('Error loading collection details: ' + error.message);
+            }
+        }
+
+        function closeCollectionModal() {
+            document.getElementById('collection-modal').classList.add('hidden');
+        }
+
+        function refreshCollections() {
+            loadCollectionStats();
+            loadCollections();
+        }
+
+        async function loadPodcastGroups() {
+            try {
+                const response = await fetch('/api/podcast-groups');
+                const groups = await response.json();
+                
+                const createSelect = document.getElementById('new-collection-groups');
+                const editSelect = document.getElementById('edit-collection-groups');
+                
+                // Clear existing options
+                createSelect.innerHTML = '';
+                editSelect.innerHTML = '';
+                
+                // Add groups to both selects
+                groups.forEach(group => {
+                    const option1 = document.createElement('option');
+                    option1.value = group.id;
+                    option1.textContent = group.name;
+                    createSelect.appendChild(option1);
+                    
+                    const option2 = document.createElement('option');
+                    option2.value = group.id;
+                    option2.textContent = group.name;
+                    editSelect.appendChild(option2);
+                });
+            } catch (error) {
+                console.error('Error loading podcast groups:', error);
+            }
+        }
+
+        function createNewCollection() {
+            // Load podcast groups and show create collection modal
+            loadPodcastGroups();
+            const modal = document.getElementById('create-collection-modal');
+            modal.classList.remove('hidden');
+        }
+
+        function viewCollectionStats() {
+            // Show detailed stats modal
+            const modal = document.getElementById('stats-modal');
+            modal.classList.remove('hidden');
+            loadDetailedStats();
+        }
+
+        function exportCollections() {
+            // Export collections data as JSON
+            fetch('/api/collections')
+                .then(response => response.json())
+                .then(collections => {
+                    const dataStr = JSON.stringify(collections, null, 2);
+                    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+                    const url = URL.createObjectURL(dataBlob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `collections-export-${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                })
+                .catch(error => {
+                    console.error('Error exporting collections:', error);
+                    alert('Error exporting collections: ' + error.message);
+                });
+        }
+
+        function editCollection(collectionId) {
+            // Load collection data and show edit modal
+            fetch(`/api/collections/${collectionId}`)
+                .then(response => response.json())
+                .then(collection => {
+                    // Populate edit form
+                    document.getElementById('edit-collection-id').value = collection.id;
+                    document.getElementById('edit-collection-name').value = collection.name;
+                    document.getElementById('edit-collection-description').value = collection.description || '';
+                    
+                    // Load podcast groups and set current assignments
+                    loadPodcastGroups().then(() => {
+                        const groupSelect = document.getElementById('edit-collection-groups');
+                        // Select current group assignments
+                        if (collection.group_ids) {
+                            collection.group_ids.forEach(groupId => {
+                                const option = groupSelect.querySelector(`option[value="${groupId}"]`);
+                                if (option) {
+                                    option.selected = true;
+                                }
+                            });
+                        }
+                    });
+                    
+                    // Show edit modal
+                    const modal = document.getElementById('edit-collection-modal');
+                    modal.classList.remove('hidden');
+                })
+                .catch(error => {
+                    console.error('Error loading collection for edit:', error);
+                    alert('Error loading collection: ' + error.message);
+                });
+        }
+
+        function sendToPresenter(collectionId) {
+            if (confirm('Send this collection to Presenter for voice generation?')) {
+                fetch(`/api/collections/${collectionId}/send-to-presenter`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert('Collection sent to Presenter successfully!');
+                        refreshCollections();
+                    } else {
+                        return response.json().then(error => {
+                            throw new Error(error.detail || 'Failed to send to presenter');
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error sending to presenter:', error);
+                    alert('Error sending to presenter: ' + error.message);
+                });
+            }
+        }
+
+        function sendToWriter(collectionId) {
+            if (confirm('Send this collection to Writer for script generation?')) {
+                fetch(`/api/collections/${collectionId}/send-to-writer`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert('Collection sent to Writer successfully!');
+                        refreshCollections();
+                    } else {
+                        return response.json().then(error => {
+                            throw new Error(error.detail || 'Failed to send to writer');
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error sending to writer:', error);
+                    alert('Error sending to writer: ' + error.message);
+                });
+            }
+        }
+
+        // Modal functions
+        function closeCreateModal() {
+            document.getElementById('create-collection-modal').classList.add('hidden');
+            document.getElementById('create-collection-form').reset();
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-collection-modal').classList.add('hidden');
+            document.getElementById('edit-collection-form').reset();
+        }
+
+        function closeStatsModal() {
+            document.getElementById('stats-modal').classList.add('hidden');
+        }
+
+        async function loadDetailedStats() {
+            try {
+                const response = await fetch('/api/collections');
+                const collections = await response.json();
+                
+                const statsHtml = `
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h4 class="font-medium text-blue-900">Total Collections</h4>
+                            <p class="text-2xl font-bold text-blue-600">${collections.length}</p>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg">
+                            <h4 class="font-medium text-green-900">Ready Collections</h4>
+                            <p class="text-2xl font-bold text-green-600">${collections.filter(c => c.status === 'ready').length}</p>
+                        </div>
+                        <div class="bg-yellow-50 p-4 rounded-lg">
+                            <h4 class="font-medium text-yellow-900">Building Collections</h4>
+                            <p class="text-2xl font-bold text-yellow-600">${collections.filter(c => c.status === 'building').length}</p>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <h4 class="font-medium text-purple-900">Total Articles</h4>
+                            <p class="text-2xl font-bold text-purple-600">${collections.reduce((sum, c) => sum + (c.article_count || 0), 0)}</p>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <h4 class="font-medium text-gray-900">Avg Articles/Collection</h4>
+                            <p class="text-2xl font-bold text-gray-600">${collections.length > 0 ? Math.round(collections.reduce((sum, c) => sum + (c.article_count || 0), 0) / collections.length) : 0}</p>
+                        </div>
+                        <div class="bg-indigo-50 p-4 rounded-lg">
+                            <h4 class="font-medium text-indigo-900">Collections with Groups</h4>
+                            <p class="text-2xl font-bold text-indigo-600">${collections.filter(c => c.group_names && c.group_names.length > 0).length}</p>
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <h4 class="font-medium text-gray-900 mb-3">Collection Breakdown</h4>
+                        <div class="space-y-2">
+                            ${collections.map(collection => `
+                                <div class="flex justify-between items-center p-3 bg-gray-50 rounded">
+                                    <div>
+                                        <span class="font-medium">${collection.name}</span>
+                                        <span class="text-sm text-gray-500 ml-2">(${collection.group_names && collection.group_names.length > 0 ? collection.group_names.join(', ') : 'Independent'})</span>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="text-sm text-gray-600">${collection.article_count || 0} articles</span>
+                                        <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            collection.status === 'ready' ? 'bg-green-100 text-green-800' :
+                                            collection.status === 'building' ? 'bg-yellow-100 text-yellow-800' :
+                                            'bg-gray-100 text-gray-800'
+                                        }">${collection.status}</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('detailed-stats').innerHTML = statsHtml;
+            } catch (error) {
+                console.error('Error loading detailed stats:', error);
+                document.getElementById('detailed-stats').innerHTML = '<p class="text-red-600">Error loading statistics</p>';
+            }
+        }
+
+        // Form handlers
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCollectionStats();
+            loadCollections();
+
+            // Create collection form handler
+            document.getElementById('create-collection-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const name = document.getElementById('new-collection-name').value;
+                const description = document.getElementById('new-collection-description').value;
+                const groupSelect = document.getElementById('new-collection-groups');
+                const selectedGroups = Array.from(groupSelect.selectedOptions).map(option => option.value);
+                
+                try {
+                    const response = await fetch('/api/collections', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            name: name,
+                            description: description,
+                            group_ids: selectedGroups
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        closeCreateModal();
+                        refreshCollections();
+                        alert('Collection created successfully!');
+                    } else {
+                        const error = await response.json();
+                        alert('Error creating collection: ' + (error.detail || 'Unknown error'));
+                    }
+                } catch (error) {
+                    console.error('Error creating collection:', error);
+                    alert('Error creating collection: ' + error.message);
+                }
+            });
+
+            // Edit collection form handler
+            document.getElementById('edit-collection-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const id = document.getElementById('edit-collection-id').value;
+                const name = document.getElementById('edit-collection-name').value;
+                const description = document.getElementById('edit-collection-description').value;
+                const groupSelect = document.getElementById('edit-collection-groups');
+                const selectedGroups = Array.from(groupSelect.selectedOptions).map(option => option.value);
+                
+                try {
+                    const response = await fetch(`/api/collections/${id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            name: name,
+                            description: description,
+                            group_ids: selectedGroups
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        closeEditModal();
+                        refreshCollections();
+                        alert('Collection updated successfully!');
+                    } else {
+                        const error = await response.json();
+                        alert('Error updating collection: ' + (error.detail || 'Unknown error'));
+                    }
+                } catch (error) {
+                    console.error('Error updating collection:', error);
+                    alert('Error updating collection: ' + error.message);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

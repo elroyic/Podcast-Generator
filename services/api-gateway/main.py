@@ -8,14 +8,18 @@ from uuid import UUID
 
 import httpx
 import os
-from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
+import jwt
+from datetime import datetime, timedelta
+from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from sqlalchemy import text, func
 
 from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed
+from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection
 from shared.schemas import (
     PodcastGroup as PodcastGroupSchema,
     PodcastGroupCreate,
@@ -31,6 +35,10 @@ from shared.schemas import (
     GenerationResponse,
     HealthCheck
 )
+from fastapi import Body
+
+import os
+import subprocess
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,17 +48,73 @@ app = FastAPI(title="Podcast AI API Gateway", version="1.0.0")
 
 # Templates for admin interface
 templates = Jinja2Templates(directory="templates")
-PUBLIC_MEDIA_BASE_URL = os.getenv("PUBLIC_MEDIA_BASE_URL", "http://localhost:8090")
+PUBLIC_MEDIA_BASE_URL = os.getenv("PUBLIC_MEDIA_BASE_URL", "http://localhost:8095")
+
+# JWT Configuration
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = 24
+
+# Authentication
+security = HTTPBearer(auto_error=False)
 
 # Service URLs
 SERVICE_URLS = {
     "news-feed": "http://news-feed:8001",
-    "text-generation": "http://text-generation:8002", 
+    "text-generation": "http://text-generation:8002",
     "writer": "http://writer:8003",
     "presenter": "http://presenter:8004",
+    # Internal-only services (no host port mapping needed)
     "publishing": "http://publishing:8005",
-    "ai-overseer": "http://ai-overseer:8006"
+    # Correct port for enhanced overseer service
+    "ai-overseer": "http://ai-overseer:8006",
+    "reviewer": "http://reviewer:8008",
 }
+
+# JWT Helper Functions
+def create_jwt_token(username: str) -> str:
+    """Create a JWT token for a user."""
+    expiry = datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS)
+    payload = {
+        "sub": username,
+        "exp": expiry,
+        "iat": datetime.utcnow(),
+        "role": "admin"  # Simple role-based auth
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
+    """Verify a JWT token and return payload."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.PyJWTError:
+        return None
+
+
+def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+    """Get current authenticated user from JWT token (header or cookie)."""
+    token: Optional[str] = None
+    if credentials and getattr(credentials, 'credentials', None):
+        token = credentials.credentials
+    else:
+        # Fallback to cookie
+        token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    payload = verify_jwt_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return payload
+
+
+def admin_required(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Require admin role for endpoint access."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
 
 # Create tables on startup
 @app.on_event("startup")
@@ -81,6 +145,64 @@ async def call_service(service_name: str, method: str, endpoint: str, **kwargs) 
         raise HTTPException(status_code=500, detail=f"Service communication error: {str(e)}")
 
 
+# Authentication Endpoints
+@app.post("/api/auth/login")
+async def login(credentials: Dict[str, str] = Body(...), request: Request = None):
+    """Simple login endpoint - in production, validate against a user database."""
+    username = credentials.get("username")
+    password = credentials.get("password")
+    
+    # Simple hardcoded admin credentials (in production, use proper user management)
+    # Read admin credentials from environment
+    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    if username == admin_username and password == admin_password:
+        token = create_jwt_token(username)
+        # Set cookie via response in frontend fetch handler
+        from fastapi.responses import JSONResponse
+        resp = JSONResponse({
+            "access_token": token,
+            "token_type": "bearer",
+            "username": username,
+            "role": "elroyic"
+        })
+        # Cookie for HTML session auth
+        resp.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            max_age=JWT_EXPIRE_HOURS * 3600,
+            samesite="lax",
+            secure=False
+        )
+        return resp
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+# Admin Interface
+def require_html_auth(request: Request) -> Optional[RedirectResponse]:
+    token = request.cookies.get("access_token")
+    if not token:
+        return RedirectResponse(url="/login")
+    if not verify_jwt_token(token):
+        return RedirectResponse(url="/login")
+    return None
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.post("/api/auth/verify")
+async def verify_token(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Verify if current token is valid."""
+    return {
+        "valid": True,
+        "username": current_user.get("sub"),
+        "role": current_user.get("role"),
+        "expires": current_user.get("exp")
+    }
+
+
 # Health Check
 @app.get("/health", response_model=HealthCheck)
 async def health_check():
@@ -98,7 +220,8 @@ async def health_check():
     # Check database
     try:
         db = next(get_db())
-        db.execute("SELECT 1")
+        # SQLAlchemy 2.x requires using text() for textual SQL
+        db.execute(text("SELECT 1"))
         services_status["database"] = "healthy"
     except Exception as e:
         services_status["database"] = f"error: {str(e)}"
@@ -116,6 +239,8 @@ async def health_check():
 @app.get("/", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
     """Admin dashboard home page."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     
     # Get system stats
     total_groups = db.query(PodcastGroup).count()
@@ -192,7 +317,63 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_db)):
 @app.get("/groups", response_class=HTMLResponse)
 async def groups_page(request: Request):
     """Render the Podcast Groups management UI (data fetched client-side)."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
     return templates.TemplateResponse("groups.html", {"request": request})
+
+
+# Reviewer Dashboard Page
+@app.get("/reviewer", response_class=HTMLResponse)
+async def reviewer_dashboard(request: Request):
+    """Render the Reviewer Dashboard UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("reviewer-dashboard.html", {"request": request})
+
+
+# Presenter Management Page
+@app.get("/presenters", response_class=HTMLResponse)
+async def presenter_management(request: Request):
+    """Render the Presenter Management UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("presenter-management.html", {"request": request})
+
+
+# Episodes Page
+@app.get("/episodes", response_class=HTMLResponse)
+async def episodes_page(request: Request):
+    """Render the Episodes UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("episodes.html", {"request": request})
+
+
+# News Feed Dashboard Page
+@app.get("/news-feed", response_class=HTMLResponse)
+async def news_feed_dashboard(request: Request):
+    """Render the News Feed Dashboard UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("news-feed-dashboard.html", {"request": request})
+
+
+# Collections Dashboard Page
+@app.get("/collections", response_class=HTMLResponse)
+async def collections_dashboard(request: Request):
+    """Render the Collections Dashboard UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("collections-dashboard.html", {"request": request})
+
+
+# Writers Management Page
+@app.get("/writers", response_class=HTMLResponse)
+async def writers_page(request: Request):
+    """Render the Writers Management UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("writers.html", {"request": request})
 
 
 # Management endpoints
@@ -285,7 +466,8 @@ async def list_podcast_groups(
 @app.post("/api/podcast-groups", response_model=PodcastGroupSchema)
 async def create_podcast_group(
     group_data: PodcastGroupCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
 ):
     """Create a new podcast group."""
     # Validate presenters exist
@@ -397,7 +579,8 @@ async def update_podcast_group(
 @app.delete("/api/podcast-groups/{group_id}")
 async def delete_podcast_group(
     group_id: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
 ):
     """Delete a podcast group."""
     group = db.query(PodcastGroup).filter(PodcastGroup.id == group_id).first()
@@ -413,7 +596,8 @@ async def delete_podcast_group(
 @app.post("/api/generate-episode", response_model=GenerationResponse)
 async def generate_episode(
     request: GenerationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
 ):
     """Generate a complete episode for a podcast group."""
     
@@ -457,6 +641,50 @@ async def list_episodes(
     return query.order_by(Episode.created_at.desc()).limit(limit).all()
 
 
+@app.get("/api/episodes-simple")
+async def list_episodes_simple(
+    group_id: Optional[UUID] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """List episodes with simple data (no complex relationships)."""
+    query = db.query(Episode)
+    
+    if group_id:
+        query = query.filter(Episode.group_id == group_id)
+    
+    if status:
+        try:
+            from shared.models import EpisodeStatus
+            episode_status = EpisodeStatus(status)
+            query = query.filter(Episode.status == episode_status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    
+    episodes = query.order_by(Episode.created_at.desc()).limit(limit).all()
+    
+    # Convert to simple format
+    simple_episodes = []
+    for episode in episodes:
+        # Get group name
+        group_name = "Unknown"
+        if episode.group_id:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == episode.group_id).first()
+            if group:
+                group_name = group.name
+        
+        simple_episodes.append({
+            "id": str(episode.id),
+            "group_id": str(episode.group_id) if episode.group_id else None,
+            "group_name": group_name,
+            "status": episode.status.value if episode.status else "unknown",
+            "created_at": episode.created_at.isoformat() if episode.created_at else None
+        })
+    
+    return simple_episodes
+
+
 @app.get("/api/episodes/{episode_id}", response_model=EpisodeSchema)
 async def get_episode(
     episode_id: UUID,
@@ -469,11 +697,105 @@ async def get_episode(
     return episode
 
 
+@app.get("/api/episodes/{episode_id}/download")
+async def download_episode(
+    episode_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Download episode audio file."""
+    from shared.models import AudioFile
+    from fastapi.responses import RedirectResponse
+    
+    # Get episode
+    episode = db.query(Episode).filter(Episode.id == episode_id).first()
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    
+    # Get audio file
+    audio_file = db.query(AudioFile).filter(AudioFile.episode_id == episode_id).first()
+    if not audio_file:
+        raise HTTPException(status_code=404, detail="Audio file not found for this episode")
+    
+    # Check if this is a local file path or external URL
+    if audio_file.url.startswith("http"):
+        # External URL - redirect directly
+        return RedirectResponse(url=audio_file.url)
+    else:
+        # Local path - normalize
+        url = audio_file.url
+        # Strip file:// prefix if present
+        if url.startswith("file://"):
+            url = url[len("file://"):]
+        # Expected presenter writes to /app/storage/episodes/{id}/audio.mp3
+        # Public URL is exposed by nginx as /storage/episodes/{id}/audio.mp3
+        # Map any absolute path ending with /storage/episodes/... to public path
+        storage_marker = "/storage/episodes/"
+        public_path = None
+        try:
+            idx = url.replace("\\", "/").find(storage_marker)
+            if idx != -1:
+                public_path = url.replace("\\", "/")[idx:]
+            else:
+                # Fallback: construct from episode id
+                public_path = f"/storage/episodes/{episode_id}/audio.mp3"
+        except Exception:
+            public_path = f"/storage/episodes/{episode_id}/audio.mp3"
+        nginx_url = f"http://localhost:8080{public_path}"
+        return RedirectResponse(url=nginx_url)
+
+
 # Presenters API
 @app.get("/api/presenters", response_model=List[PresenterSchema])
 async def list_presenters(db: Session = Depends(get_db)):
     """List all presenters."""
     return db.query(Presenter).all()
+
+
+@app.get("/api/presenters/{presenter_id}", response_model=PresenterSchema)
+async def get_presenter(
+    presenter_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Get a specific presenter."""
+    presenter = db.query(Presenter).filter(Presenter.id == presenter_id).first()
+    if not presenter:
+        raise HTTPException(status_code=404, detail="Presenter not found")
+    return presenter
+
+
+@app.put("/api/presenters/{presenter_id}", response_model=PresenterSchema)
+async def update_presenter(
+    presenter_id: UUID,
+    presenter_data: PresenterCreate,
+    db: Session = Depends(get_db)
+):
+    """Update a presenter."""
+    presenter = db.query(Presenter).filter(Presenter.id == presenter_id).first()
+    if not presenter:
+        raise HTTPException(status_code=404, detail="Presenter not found")
+    
+    update_data = presenter_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(presenter, field, value)
+    
+    db.commit()
+    db.refresh(presenter)
+    return presenter
+
+
+@app.delete("/api/presenters/{presenter_id}")
+async def delete_presenter(
+    presenter_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Delete a presenter."""
+    presenter = db.query(Presenter).filter(Presenter.id == presenter_id).first()
+    if not presenter:
+        raise HTTPException(status_code=404, detail="Presenter not found")
+    
+    db.delete(presenter)
+    db.commit()
+    return {"message": "Presenter deleted successfully"}
 
 
 @app.post("/api/presenters", response_model=PresenterSchema)
@@ -509,11 +831,77 @@ async def create_writer(
     return writer
 
 
+@app.get("/api/writers/{writer_id}", response_model=WriterSchema)
+async def get_writer(writer_id: str, db: Session = Depends(get_db)):
+    """Get a specific writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    return writer
+
+
+@app.put("/api/writers/{writer_id}", response_model=WriterSchema)
+async def update_writer(
+    writer_id: str,
+    writer_data: WriterCreate,
+    db: Session = Depends(get_db)
+):
+    """Update a writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    for key, value in writer_data.dict().items():
+        setattr(writer, key, value)
+    
+    db.commit()
+    db.refresh(writer)
+    return writer
+
+
+@app.delete("/api/writers/{writer_id}")
+async def delete_writer(writer_id: str, db: Session = Depends(get_db)):
+    """Delete a writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    db.delete(writer)
+    db.commit()
+    return {"message": "Writer deleted successfully"}
+
+
 # News Feeds API
 @app.get("/api/news-feeds", response_model=List[NewsFeedSchema])
 async def list_news_feeds(db: Session = Depends(get_db)):
-    """List all news feeds."""
-    return db.query(NewsFeed).all()
+    """List all news feeds with article_count per feed."""
+    from shared.models import Article
+    feeds = db.query(NewsFeed).all()
+    # Batch count per-feed
+    from collections import defaultdict
+    counts = defaultdict(int)
+    # Fetch counts in one query if possible
+    try:
+        from sqlalchemy import func
+        rows = (
+            db.query(Article.feed_id, func.count(Article.id))
+              .group_by(Article.feed_id)
+              .all()
+        )
+        for fid, cnt in rows:
+            counts[str(fid)] = int(cnt)
+    except Exception:
+        pass
+
+    out: List[NewsFeedSchema] = []
+    for f in feeds:
+        # Attach computed count
+        try:
+            setattr(f, 'article_count', counts.get(str(f.id), 0))
+        except Exception:
+            pass
+        out.append(f)
+    return out
 
 
 @app.post("/api/news-feeds", response_model=NewsFeedSchema)
@@ -532,6 +920,650 @@ async def get_system_stats(db: Session = Depends(get_db)):
     """Get system statistics."""
     # Get stats from AI Overseer
     return await call_service("ai-overseer", "GET", "/stats")
+
+
+# Reviewer proxy endpoints
+@app.get("/api/reviewer/config")
+async def get_reviewer_config():
+    return await call_service("reviewer", "GET", "/config")
+
+
+@app.put("/api/reviewer/config")
+async def put_reviewer_config(payload: Dict[str, Any] = Body(...)):
+    return await call_service("reviewer", "PUT", "/config", json=payload)
+
+
+@app.get("/api/reviewer/metrics")
+async def get_reviewer_metrics():
+    return await call_service("reviewer", "GET", "/metrics")
+
+
+@app.get("/api/reviewer/queue/status")
+async def get_reviewer_queue_status():
+    """Get reviewer queue status and worker information."""
+    try:
+        queue_status = await call_service("reviewer", "GET", "/queue/status")
+        worker_status = await call_service("reviewer", "GET", "/queue/worker/status")
+        
+        return {
+            "queue_length": queue_status.get("queue_length", 0),
+            "estimated_processing_time_minutes": queue_status.get("estimated_processing_time_minutes", 0),
+            "preview_items": queue_status.get("preview_items", []),
+            "status": queue_status.get("status", "unknown"),
+            "worker_status": worker_status.get("status", "unknown"),
+            "worker_running": worker_status.get("worker_running", False),
+            "thread_alive": worker_status.get("thread_alive", False)
+        }
+    except Exception as e:
+        logger.error(f"Error getting reviewer queue status: {e}")
+        return {
+            "queue_length": 0,
+            "estimated_processing_time_minutes": 0,
+            "preview_items": [],
+            "status": "error",
+            "worker_status": "unknown",
+            "worker_running": False,
+            "thread_alive": False,
+            "error": str(e)
+        }
+
+
+@app.post("/api/reviewer/scale/light")
+async def scale_light_reviewer(workers: int = Body(embed=True, default=1)):
+    """Scale light reviewer workers and apply Docker scaling."""
+    # Store desired count in reviewer config
+    await call_service("reviewer", "PUT", "/config", json={"light_workers": workers})
+    
+    # Apply actual Docker scaling
+    try:
+        scaling_result = await apply_container_scaling("light-reviewer", workers)
+        return {
+            "status": "ok", 
+            "workers": workers,
+            "scaling_applied": scaling_result["success"],
+            "message": scaling_result["message"]
+        }
+    except Exception as e:
+        logger.warning(f"Config updated but scaling failed: {e}")
+        return {
+            "status": "partial", 
+            "workers": workers,
+            "scaling_applied": False,
+            "message": f"Config updated but scaling failed: {str(e)}"
+        }
+
+
+async def apply_container_scaling(service_name: str, replica_count: int) -> Dict[str, Any]:
+    """Apply Docker container scaling using docker-compose."""
+    try:
+        import subprocess
+        import asyncio
+        
+        # Use docker-compose to scale the service
+        cmd = ["docker", "compose", "up", "-d", "--scale", f"{service_name}={replica_count}", service_name]
+        
+        # Run the scaling command
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd="/workspace"  # Assuming docker-compose.yml is in workspace root
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            logger.info(f"✅ Successfully scaled {service_name} to {replica_count} replicas")
+            return {
+                "success": True,
+                "message": f"Scaled {service_name} to {replica_count} replicas",
+                "output": stdout.decode() if stdout else ""
+            }
+        else:
+            error_msg = stderr.decode() if stderr else f"Process returned code {process.returncode}"
+            logger.error(f"❌ Failed to scale {service_name}: {error_msg}")
+            return {
+                "success": False,
+                "message": f"Scaling failed: {error_msg}",
+                "output": stdout.decode() if stdout else ""
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Error during container scaling: {e}")
+        return {
+            "success": False,
+            "message": f"Scaling error: {str(e)}",
+            "output": ""
+        }
+
+
+@app.get("/api/reviewer/scale/status")
+async def get_scaling_status():
+    """Get current scaling status of reviewer services."""
+    try:
+        import subprocess
+        import asyncio
+        
+        # Get current container status
+        cmd = ["docker", "compose", "ps", "--format", "json"]
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd="/workspace"
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            import json
+            containers = []
+            output = stdout.decode().strip()
+            
+            # Parse JSON output (each line is a JSON object)
+            for line in output.split('\n'):
+                if line.strip():
+                    try:
+                        container = json.loads(line)
+                        if 'reviewer' in container.get('Service', ''):
+                            containers.append({
+                                "service": container.get('Service'),
+                                "state": container.get('State'),
+                                "status": container.get('Status'),
+                                "name": container.get('Name')
+                            })
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Get config from reviewer service
+            reviewer_config = await call_service("reviewer", "GET", "/config")
+            
+            return {
+                "status": "success",
+                "containers": containers,
+                "configured_light_workers": reviewer_config.get("light_workers", 1),
+                "actual_light_containers": len([c for c in containers if 'light-reviewer' in c['service']]),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Failed to get container status",
+                "error": stderr.decode() if stderr else "Unknown error"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting scaling status: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to get scaling status: {str(e)}"
+        }
+
+
+@app.get("/api/cadence/status")
+async def get_cadence_status(group_id: Optional[str] = None):
+    """Get cadence status for podcast groups."""
+    if group_id:
+        return await call_service("ai-overseer", "GET", f"/cadence/status?group_id={group_id}")
+    else:
+        return await call_service("ai-overseer", "GET", "/cadence/status")
+
+
+@app.get("/api/overseer/duplicates")
+async def get_overseer_duplicates(since: str):
+    return await call_service("ai-overseer", "GET", f"/api/overseer/duplicates?since={since}")
+
+
+# News Feed API endpoints
+@app.get("/api/news-feed/stats")
+async def get_news_feed_stats(db: Session = Depends(get_db)):
+    """Get news feed statistics."""
+    from shared.models import NewsFeed, Article
+    from datetime import datetime, timedelta
+    
+    # Get total feeds
+    total_feeds = db.query(NewsFeed).count()
+    
+    # Get active feeds
+    active_feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).count()
+    
+    # Get articles from today
+    today = datetime.now().date()
+    articles_today = db.query(Article).filter(
+        Article.created_at >= today
+    ).count()
+    
+    # Get last fetch time
+    last_feed = db.query(NewsFeed).filter(
+        NewsFeed.last_fetched.isnot(None)
+    ).order_by(NewsFeed.last_fetched.desc()).first()
+    
+    last_fetch = last_feed.last_fetched.isoformat() if last_feed and last_feed.last_fetched else None
+    
+    return {
+        "total_feeds": total_feeds,
+        "active_feeds": active_feeds,
+        "articles_today": articles_today,
+        "last_fetch": last_fetch
+    }
+
+
+@app.get("/api/news-feed/recent-articles")
+async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
+    """Get recent articles from all feeds."""
+    from shared.models import Article, NewsFeed
+    
+    articles = db.query(Article).join(NewsFeed).order_by(
+        Article.created_at.desc()
+    ).limit(limit).all()
+    
+    result = []
+    for article in articles:
+        feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+        result.append({
+            "id": str(article.id),
+            "title": article.title,
+            "link": article.link,
+            "summary": article.summary,
+            "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+            "feed_name": feed.name if feed else "Unknown Feed",
+            "reviewer_type": article.reviewer_type,
+            "confidence": article.confidence
+        })
+    
+    return result
+
+
+@app.get("/api/news-feed/performance")
+async def get_news_feed_performance(hours: int = 24, db: Session = Depends(get_db)):
+    """Return time-series of article counts per hour for the last N hours.
+    Uses Article.created_at for ingestion-based performance.
+    """
+    from shared.models import Article
+    from datetime import datetime, timedelta
+
+    # Normalize to the top of the current hour (UTC)
+    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    start = now - timedelta(hours=hours - 1)
+
+    # Query counts grouped per hour using Postgres date_trunc
+    rows = (
+        db.query(
+            func.date_trunc('hour', Article.created_at).label('bucket'),
+            func.count(Article.id)
+        )
+        .filter(Article.created_at >= start)
+        .group_by('bucket')
+        .order_by('bucket')
+        .all()
+    )
+
+    # Map results for quick lookup
+    bucket_to_count = {}
+    for bucket_dt, count in rows:
+        try:
+            # bucket_dt may be timezone-aware depending on DB config
+            key = bucket_dt.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+        except Exception:
+            key = bucket_dt
+        bucket_to_count[key] = int(count)
+
+    labels: list[str] = []
+    counts: list[int] = []
+    # Build a contiguous series covering the full window
+    for i in range(hours):
+        ts = start + timedelta(hours=i)
+        labels.append(ts.strftime("%H:00"))
+        counts.append(int(bucket_to_count.get(ts, 0)))
+
+    return {
+        "start": start.isoformat() + "Z",
+        "end": now.isoformat() + "Z",
+        "labels": labels,
+        "counts": counts,
+    }
+
+
+@app.post("/api/news-feed/send-to-reviewer")
+async def send_articles_to_reviewer():
+    """Send unreviewed articles to the reviewer service."""
+    return await call_service("news-feed", "POST", "/articles/send-to-reviewer")
+
+
+@app.post("/api/auto-create-groups") 
+async def auto_create_groups():
+    """Auto-create podcast groups."""
+    return await call_service("ai-overseer", "POST", "/auto-create-groups")
+
+
+@app.post("/api/presenters/auto-generate")
+async def auto_generate_presenter_persona(request: dict):
+    """Generate a presenter persona using LLM."""
+    return await call_service("ai-overseer", "POST", "/api/presenters/auto-generate", json=request)
+
+
+@app.post("/api/writers/auto-generate")
+async def auto_generate_writer_persona(request: dict):
+    """Generate a writer persona using LLM."""
+    return await call_service("ai-overseer", "POST", "/api/writers/auto-generate", json=request)
+
+
+@app.post("/api/news-feed/refresh/{feed_id}")
+async def refresh_feed(feed_id: UUID, db: Session = Depends(get_db)):
+    """Trigger a manual refresh of a specific news feed."""
+    from shared.models import NewsFeed, Article
+    import httpx
+    import feedparser
+    from datetime import datetime
+    
+    # Get the feed
+    feed = db.query(NewsFeed).filter(NewsFeed.id == feed_id).first()
+    if not feed:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    
+    try:
+        # Fetch the RSS feed
+        async with httpx.AsyncClient() as client:
+            response = await client.get(feed.source_url, timeout=30.0)
+            response.raise_for_status()
+            
+        # Parse the feed
+        parsed_feed = feedparser.parse(response.text)
+        
+        if parsed_feed.bozo:
+            return {"success": False, "error": "Invalid RSS feed format", "entries_processed": 0}
+        
+        # Process new entries
+        entries_processed = 0
+        for entry in parsed_feed.entries[:10]:  # Limit to 10 most recent entries
+            # Check if article already exists
+            existing = db.query(Article).filter(
+                Article.feed_id == feed.id,
+                Article.link == entry.link
+            ).first()
+            
+            if not existing:
+                # Create new article
+                article = Article(
+                    feed_id=feed.id,
+                    title=entry.title,
+                    link=entry.link,
+                    summary=entry.summary if hasattr(entry, 'summary') else None,
+                    content=entry.content[0].value if hasattr(entry, 'content') and entry.content else None,
+                    publish_date=datetime(*entry.published_parsed[:6]) if hasattr(entry, 'published_parsed') else None
+                )
+                db.add(article)
+                entries_processed += 1
+        
+        # Update feed last_fetched
+        feed.last_fetched = datetime.utcnow()
+        db.commit()
+        
+        return {
+            "success": True, 
+            "message": f"Feed refreshed successfully. {entries_processed} new articles processed.",
+            "entries_processed": entries_processed
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e), "entries_processed": 0}
+
+
+@app.post("/api/news-feed/refresh-all")
+async def refresh_all_feeds(db: Session = Depends(get_db)):
+    """Trigger refresh for all active news feeds via the news-feed service."""
+    try:
+        # Get all active feeds
+        feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).all()
+
+        triggered = 0
+        errors: list[str] = []
+
+        for feed in feeds:
+            try:
+                await call_service("news-feed", "POST", f"/feeds/{feed.id}/fetch")
+                triggered += 1
+            except Exception as e:
+                errors.append(f"{feed.id}: {str(e)}")
+
+        return {
+            "success": len(errors) == 0,
+            "triggered": triggered,
+            "errors": errors,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to trigger feed refresh: {str(e)}")
+
+
+# Collections API endpoints
+@app.get("/api/collections/stats")
+async def get_collections_stats(db: Session = Depends(get_db)):
+    """Get collections statistics."""
+    try:
+        # Get stats from Collections service
+        return await call_service("collections", "GET", "/collections/stats")
+    except Exception as e:
+        logger.error(f"Error getting collections stats: {e}")
+        # Fallback to database query
+        from shared.models import Article, Collection
+        
+        # Get collections stats from database
+        total_collections = db.query(Collection).count()
+        ready_collections = db.query(Collection).filter(Collection.status == "ready").count()
+        processing_collections = db.query(Collection).filter(Collection.status.in_(["building", "processing"])).count()
+        total_articles = db.query(Article).count()
+        
+        return {
+            "total_collections": total_collections,
+            "ready_collections": ready_collections,
+            "processing_collections": processing_collections,
+            "total_articles": total_articles
+        }
+
+
+@app.get("/api/collections")
+async def list_collections(db: Session = Depends(get_db)):
+    """List all collections."""
+    from shared.models import Collection, PodcastGroup, Article
+    
+    collections = db.query(Collection).all()
+    
+    result = []
+    for collection in collections:
+        # Get group names
+        group_names = [group.name for group in collection.podcast_groups] if collection.podcast_groups else []
+        
+        # Get article count
+        article_count = db.query(Article).filter(Article.collection_id == collection.id).count()
+        
+        result.append({
+            "id": str(collection.id),
+            "name": collection.name,
+            "description": collection.description,
+            "group_ids": [str(group.id) for group in collection.podcast_groups],
+            "group_names": group_names,
+            "status": collection.status,
+            "article_count": article_count,
+            "created_at": collection.created_at.isoformat() if collection.created_at else None,
+            "updated_at": collection.updated_at.isoformat() if collection.updated_at else None
+        })
+    
+    return result
+
+
+@app.get("/api/collections/{collection_id}")
+async def get_collection(collection_id: UUID, db: Session = Depends(get_db)):
+    """Get a specific collection with its articles."""
+    from shared.models import Collection, Article, NewsFeed, PodcastGroup
+    
+    collection = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    # Get group names
+    group_names = [group.name for group in collection.podcast_groups] if collection.podcast_groups else []
+    
+    # Get articles
+    articles = db.query(Article).filter(Article.collection_id == collection.id).all()
+    
+    article_list = []
+    for article in articles:
+        feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+        article_list.append({
+            "id": str(article.id),
+            "title": article.title,
+            "link": article.link,
+            "summary": article.summary,
+            "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+            "feed_name": feed.name if feed else "Unknown Feed",
+            "reviewer_type": article.reviewer_type,
+            "confidence": article.confidence
+        })
+    
+    return {
+        "id": str(collection.id),
+        "name": collection.name,
+        "description": collection.description,
+        "group_ids": [str(group.id) for group in collection.podcast_groups],
+        "group_names": group_names,
+        "status": collection.status,
+        "created_at": collection.created_at.isoformat() if collection.created_at else None,
+        "updated_at": collection.updated_at.isoformat() if collection.updated_at else None,
+        "articles": article_list
+    }
+
+
+@app.post("/api/collections")
+async def create_collection(
+    collection_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Create a new collection."""
+    from shared.models import Collection, PodcastGroup
+    
+    # Validate groups exist if specified
+    group_ids = collection_data.get("group_ids", [])
+    groups = []
+    if group_ids:
+        for group_id in group_ids:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == UUID(group_id)).first()
+            if not group:
+                raise HTTPException(status_code=404, detail=f"Podcast group not found: {group_id}")
+            groups.append(group)
+    
+    # Create collection
+    collection = Collection(
+        name=collection_data.get("name", "Untitled Collection"),
+        description=collection_data.get("description"),
+        status=collection_data.get("status", "processing")
+    )
+    db.add(collection)
+    db.commit()
+    db.refresh(collection)
+    
+    # Assign to groups if specified
+    if groups:
+        collection.podcast_groups = groups
+        db.commit()
+        db.refresh(collection)
+    
+    return {
+        "id": str(collection.id),
+        "name": collection.name,
+        "description": collection.description,
+        "group_ids": [str(group.id) for group in collection.podcast_groups],
+        "status": collection.status,
+        "created_at": collection.created_at.isoformat() if collection.created_at else None,
+        "updated_at": collection.updated_at.isoformat() if collection.updated_at else None
+    }
+
+
+@app.put("/api/collections/{collection_id}")
+async def update_collection(
+    collection_id: UUID,
+    collection_data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Update a collection."""
+    from shared.models import Collection
+    
+    collection = db.query(Collection).filter(Collection.id == collection_id).first()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    
+    # Update fields
+    if "name" in collection_data:
+        collection.name = collection_data["name"]
+    if "description" in collection_data:
+        collection.description = collection_data["description"]
+    if "status" in collection_data:
+        collection.status = collection_data["status"]
+    
+    # Update group assignments if provided
+    if "group_ids" in collection_data:
+        from shared.models import PodcastGroup
+        # Clear existing assignments
+        collection.podcast_groups.clear()
+        # Add new assignments
+        for group_id in collection_data["group_ids"]:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == UUID(group_id)).first()
+            if group:
+                collection.podcast_groups.append(group)
+    
+    db.commit()
+    db.refresh(collection)
+    
+    # Get group names
+    group_names = [group.name for group in collection.podcast_groups] if collection.podcast_groups else []
+    
+    return {
+        "id": str(collection.id),
+        "name": collection.name,
+        "description": collection.description,
+        "group_ids": [str(group.id) for group in collection.podcast_groups],
+        "group_names": group_names,
+        "status": collection.status,
+        "created_at": collection.created_at.isoformat() if collection.created_at else None,
+        "updated_at": collection.updated_at.isoformat() if collection.updated_at else None
+    }
+
+
+@app.post("/api/collections/{collection_id}/send-to-presenter")
+async def send_collection_to_presenter(collection_id: UUID, db: Session = Depends(get_db)):
+    """Send a collection to the presenter for voice generation."""
+    try:
+        from shared.models import Collection
+        
+        # Verify collection exists
+        collection = db.query(Collection).filter(Collection.id == collection_id).first()
+        if not collection:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        
+        # Call AI Overseer to send to presenter
+        return await call_service("ai-overseer", "POST", f"/api/collections/{collection_id}/send-to-presenter")
+    except Exception as e:
+        logger.error(f"Error sending collection to presenter: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send collection to presenter: {str(e)}")
+
+
+@app.post("/api/collections/{collection_id}/send-to-writer")
+async def send_collection_to_writer(collection_id: UUID, db: Session = Depends(get_db)):
+    """Send a collection to the writer for script generation."""
+    try:
+        from shared.models import Collection
+        
+        # Verify collection exists
+        collection = db.query(Collection).filter(Collection.id == collection_id).first()
+        if not collection:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        
+        # Call AI Overseer to send to writer
+        return await call_service("ai-overseer", "POST", f"/api/collections/{collection_id}/send-to-writer")
+    except Exception as e:
+        logger.error(f"Error sending collection to writer: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send collection to writer: {str(e)}")
 
 
 @app.post("/api/admin/cleanup")

@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast AI - Episodes</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen">
+        <!-- Navigation -->
+        <nav class="bg-white shadow-lg">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <h1 class="text-xl font-bold text-gray-800">Podcast AI</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
+                        <a href="/episodes" class="text-gray-900 font-semibold">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <div class="px-4 py-5 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-800">Episodes</h2>
+                <p class="mt-1 max-w-2xl text-sm text-gray-500">Manage and view podcast episodes</p>
+            </div>
+
+            <!-- Episodes Table -->
+            <div class="bg-white shadow overflow-hidden sm:rounded-md">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">All Episodes</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">List of all generated episodes</p>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Episode ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="episodes-table" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+                                    <div class="flex items-center justify-center">
+                                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                        <span class="ml-2">Loading episodes...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="mt-8 bg-white shadow rounded-lg p-6">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <button onclick="refreshEpisodes()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-arrow-clockwise mr-2"></i>Refresh
+                    </button>
+                    <button onclick="generateNewEpisode()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-plus-circle mr-2"></i>Generate Episode
+                    </button>
+                    <button onclick="exportEpisodes()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-download mr-2"></i>Export
+                    </button>
+                    <button onclick="viewStats()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                        <i class="bi bi-graph-up mr-2"></i>Stats
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Episode Modal -->
+    <div id="generate-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-md">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 class="text-lg font-semibold">Generate New Episode</h3>
+                <button id="gen-modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <form id="generate-form" class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-700">Podcast Group</label>
+                    <select id="gen-group" class="mt-1 w-full border rounded px-3 py-2"></select>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" id="gen-btn-cancel" class="px-4 py-2 rounded border">Cancel</button>
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded">Generate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+        async function loadEpisodes() {
+            try {
+                const response = await fetch('/api/episodes-simple');
+                const episodes = await response.json();
+                
+                const tableBody = document.getElementById('episodes-table');
+                
+                if (episodes.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+                                No episodes found. Generate your first episode!
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+                
+                tableBody.innerHTML = episodes.map(episode => `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${episode.id.substring(0, 8)}...
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            ${episode.group_name || 'Unknown'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                episode.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                                episode.status === 'voiced' ? 'bg-green-100 text-green-800' :
+                                episode.status === 'published' ? 'bg-blue-100 text-blue-800' :
+                                'bg-yellow-100 text-yellow-800'
+                            }">
+                                ${episode.status}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(episode.created_at).toLocaleDateString()}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="viewEpisode('${episode.id}')" class="text-blue-600 hover:text-blue-900 mr-3">
+                                <i class="bi bi-eye"></i> View
+                            </button>
+                            <button onclick="downloadEpisode('${episode.id}')" class="text-green-600 hover:text-green-900">
+                                <i class="bi bi-download"></i> Download
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading episodes:', error);
+                document.getElementById('episodes-table').innerHTML = `
+                    <tr>
+                        <td colspan="5" class="px-6 py-4 text-center text-red-500">
+                            Error loading episodes: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        function refreshEpisodes() {
+            loadEpisodes();
+        }
+
+        function openGenerateModal() {
+            const modal = document.getElementById('generate-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeGenerateModal() {
+            const modal = document.getElementById('generate-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function populateGroups() {
+            try {
+                const res = await fetch('/api/podcast-groups');
+                const groups = await res.json();
+                const sel = document.getElementById('gen-group');
+                sel.innerHTML = groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+            } catch (e) {
+                console.error('Failed to load groups', e);
+            }
+        }
+
+        function generateNewEpisode() {
+            populateGroups();
+            openGenerateModal();
+        }
+
+        function exportEpisodes() {
+            alert('Export Episodes functionality - to be implemented');
+        }
+
+        function viewStats() {
+            alert('View Stats functionality - to be implemented');
+        }
+
+        function viewEpisode(episodeId) {
+            window.open(`/api/episodes/${episodeId}`, '_blank');
+        }
+
+        function downloadEpisode(episodeId) {
+            window.open(`/api/episodes/${episodeId}/download`, '_blank');
+        }
+
+        // Load episodes on page load
+        document.addEventListener('DOMContentLoaded', loadEpisodes);
+
+        // Modal events
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            if (btn.id === 'gen-modal-close' || btn.id === 'gen-btn-cancel') {
+                closeGenerateModal();
+            }
+        });
+
+        document.getElementById('generate-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const groupId = document.getElementById('gen-group').value;
+            try {
+                const res = await fetch('/api/generate-episode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_id: groupId })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                closeGenerateModal();
+                alert('Episode generation queued');
+                loadEpisodes();
+            } catch (err) {
+                alert('Failed to queue generation: ' + err.message);
+            }
+        });
+    </script>
+</body>
+</html>
