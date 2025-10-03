@@ -381,6 +381,26 @@ class PresenterService(ServiceClient):
             logger.error(f"Error generating presenter feedback: {e}")
             raise
     
+    async def generate_audio(
+        self,
+        episode_id: UUID,
+        script: str,
+        presenter_ids: List[UUID]
+    ) -> Dict[str, Any]:
+        """Generate audio from script."""
+        try:
+            request_data = {
+                "episode_id": str(episode_id),
+                "script": script,
+                "presenter_ids": [str(pid) for pid in presenter_ids]
+            }
+            
+            return await self._make_request("POST", "/generate-audio", json=request_data)
+            
+        except Exception as e:
+            logger.error(f"Error generating audio: {e}")
+            raise
+    
 
 
 class TTSService(ServiceClient):
@@ -1139,12 +1159,11 @@ class EpisodeGenerationService:
             db.add(metadata)
             db.commit()
             
-            # Step 8: Generate audio using dedicated TTS service
+            # Step 8: Generate audio (TEMPORARY: using Presenter until new hardware arrives)
             logger.info("Generating audio")
-            word_count = len(script.split())
-            duration_seconds = int(word_count / 150 * 60)  # 150 words per minute
-            audio_result = await self.tts_service.generate_audio(
-                episode.id, script, duration_seconds
+            presenter_ids = [p.id for p in group.presenters]
+            audio_result = await self.presenter_service.generate_audio(
+                episode.id, script, presenter_ids
             )
             
             # Step 8.1: Create AudioFile record

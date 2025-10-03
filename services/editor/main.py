@@ -4,6 +4,7 @@ Reviews for length, accuracy, engagement and entertainment value as specified in
 """
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from uuid import UUID
@@ -19,6 +20,61 @@ from shared.models import Article, NewsFeed
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def clean_script_for_audio(script: str) -> str:
+    """
+    Remove all problematic tags and formatting from script for audio generation.
+    This is more reliable than trying to force LLMs not to generate them.
+    """
+    cleaned = script
+    
+    # Remove <think> tags and their content
+    cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove any remaining standalone think tags
+    cleaned = re.sub(r'</?think>', '', cleaned, flags=re.IGNORECASE)
+    
+    # Remove === EDITED SCRIPT === markers
+    cleaned = re.sub(r'===\s*EDITED SCRIPT\s*===', '', cleaned, flags=re.IGNORECASE)
+    
+    # Remove === REVIEW === and everything after it
+    cleaned = re.sub(r'===\s*REVIEW\s*===.*$', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove === REVIEW NOTES === and everything after it
+    cleaned = re.sub(r'===\s*REVIEW NOTES\s*===.*$', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove markdown bold from Speaker labels: **Speaker X:** → Speaker X:
+    cleaned = re.sub(r'\*\*Speaker\s+(\d+):\*\*', r'Speaker \1:', cleaned)
+    
+    # Remove any remaining markdown formatting
+    cleaned = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned)  # Bold
+    cleaned = re.sub(r'\*([^*]+)\*', r'\1', cleaned)      # Italic
+    
+    # Remove common LLM artifacts
+    cleaned = re.sub(r'Final Answer.*$', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r'\\boxed\{.*?\}', '', cleaned)
+    cleaned = re.sub(r'\$\$.*?\$\$', '', cleaned, flags=re.DOTALL)
+    
+    # Keep only lines that start with "Speaker X:" (the actual dialogue)
+    # Everything else is LLM meta-commentary
+    lines = cleaned.split('\n')
+    speaker_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('Speaker '):
+            speaker_lines.append(line)
+        # Allow blank lines between speakers
+        elif not stripped and speaker_lines:
+            speaker_lines.append(line)
+    
+    cleaned = '\n'.join(speaker_lines)
+    
+    # Clean up excessive whitespace
+    cleaned = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned)
+    cleaned = cleaned.strip()
+    
+    return cleaned
 
 app = FastAPI(title="Editor Service", version="1.0.0")
 
@@ -229,6 +285,10 @@ Please provide the edited script and detailed review as specified in the system 
                 # Fallback: assume the entire response is the edited script
                 edited_script = response
                 review_notes = "Review notes not provided in expected format."
+            
+            # Clean the script for audio generation (remove all problematic tags)
+            edited_script = clean_script_for_audio(edited_script)
+            logger.info(f"Cleaned script: {len(edited_script)} chars, {len(edited_script.split())} words")
             
             # Parse review assessments
             assessments = self._parse_review_assessments(review_notes)

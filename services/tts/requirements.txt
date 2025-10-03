@@ -6,19 +6,17 @@ psycopg2-binary==2.9.10
 python-multipart==0.0.20
 httpx==0.28.1
 
-# Audio processing
-torch==2.5.1
-torchaudio==2.5.1
+# Audio processing (torch/torchaudio come from PyTorch base image)
 soundfile==0.12.1
 pydub==0.25.1
-numpy==1.26.4
+numpy==1.24.3
 
-# Hugging Face and VibeVoice
-transformers==4.48.0
-accelerate==1.2.1
+# Hugging Face and VibeVoice (transformers installed from git in Dockerfile)
+accelerate>=0.33.0
 sentencepiece==0.2.0
 protobuf==5.29.2
 safetensors==0.4.5
 huggingface-hub==0.27.0
 diffusers==0.31.0
+librosa==0.10.2
 

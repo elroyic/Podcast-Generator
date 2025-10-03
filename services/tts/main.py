@@ -78,19 +78,20 @@ class VibeVoiceTTS:
             logger.info("Loading VibeVoiceProcessor...")
             self.processor = VibeVoiceProcessor.from_pretrained(self.model_id)
 
-            # Determine dtype based on device - always use float32 to avoid bfloat16 issues on CPU
-            dtype = torch.float32
+            # Load to CPU first to avoid device placement issues, then move to target device
             attn_impl = "sdpa"  # Use SDPA (CPU and GPU compatible)
             
-            logger.info(f"Loading model with dtype={dtype}, attn_implementation={attn_impl}")
+            logger.info(f"Loading model on CPU first, then moving to {self.device}, attn_implementation={attn_impl}")
             
-            # Load model
+            # Load model to CPU first
             self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
                 self.model_id,
-                torch_dtype=dtype,
-                device_map=str(self.device) if str(self.device) in ("cuda", "cpu") else None,
                 attn_implementation=attn_impl,
             )
+            
+            # Move to target device
+            logger.info(f"Moving model to {self.device}...")
+            self.model = self.model.to(self.device)
             
             self.model.eval()
             self.model.set_ddpm_inference_steps(num_steps=10)
@@ -180,22 +181,69 @@ class VibeVoiceTTS:
                 return_attention_mask=True,
             )
             
-            # Move tensors to target device
+            # Move tensors to target device AND match model dtype
+            model_dtype = next(self.model.parameters()).dtype
+            logger.info(f"Converting inputs to model dtype: {model_dtype}")
             for k, v in inputs.items():
                 if torch.is_tensor(v):
-                    inputs[k] = v.to(self.device)
+                    # Convert to model's dtype if it's a floating point tensor
+                    if v.dtype.is_floating_point:
+                        inputs[k] = v.to(device=self.device, dtype=model_dtype)
+                    else:
+                        inputs[k] = v.to(device=self.device)
             
             # Generate audio using the model
-            logger.info("Running model.generate()...")
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=None,
-                    cfg_scale=1.3,
-                    tokenizer=self.processor.tokenizer,
-                    generation_config={'do_sample': False},
-                    verbose=False,
-                )
+            # Calculate reasonable max_new_tokens based on text length
+            # Speech generation needs ~2-4 tokens per word for audio
+            word_count = len(text.split())
+            max_new_tokens = min(word_count * 4, 512)  # Cap at 512 for safety
+            
+            logger.info(f"Running model.generate() with max_new_tokens={max_new_tokens} for {word_count} words...")
+            logger.info(f"Input shapes: {[(k, v.shape if hasattr(v, 'shape') else type(v)) for k, v in inputs.items()]}")
+            
+            # Set a timeout using signal (Unix) or threading
+            import threading
+            generation_complete = threading.Event()
+            outputs = None
+            error = None
+            
+            def run_generation():
+                nonlocal outputs, error
+                try:
+                    logger.info("Entering model.generate()...")
+                    with torch.no_grad():
+                        # Simplified call - remove cfg_scale and generation_config that might cause issues
+                        outputs = self.model.generate(
+                            input_ids=inputs['input_ids'],
+                            attention_mask=inputs['attention_mask'],
+                            speech_input_mask=inputs.get('speech_input_mask'),
+                            speech_tensors=inputs.get('speech_tensors'),
+                            speech_masks=inputs.get('speech_masks'),
+                            max_new_tokens=max_new_tokens,
+                            tokenizer=self.processor.tokenizer,
+                            do_sample=False,
+                            num_beams=1,
+                        )
+                    logger.info("Generation completed!")
+                    generation_complete.set()
+                except Exception as e:
+                    logger.error(f"Exception in generation thread: {e}")
+                    error = e
+                    generation_complete.set()
+            
+            gen_thread = threading.Thread(target=run_generation, daemon=True)
+            logger.info("Starting generation thread...")
+            gen_thread.start()
+            
+            # Wait up to 180 seconds
+            if not generation_complete.wait(timeout=180):
+                raise TimeoutError(f"Generation did not complete within 180 seconds (got to some point but hung)")
+            
+            if error:
+                raise error
+            
+            if outputs is None:
+                raise RuntimeError("Generation completed but no outputs received")
             
             # Extract audio from outputs
             if not outputs.speech_outputs or outputs.speech_outputs[0] is None:

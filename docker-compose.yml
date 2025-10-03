@@ -240,28 +240,45 @@ services:
       - ./services:/app/services
       - ./shared:/app/shared
 
-  # Presenter Service (Persona briefs/feedback using CPU Ollama - NO TTS!)
+  # Presenter Service (TEMPORARY: Full service with VibeVoice until new hardware arrives)
   presenter:
     build: ./services/presenter
     ports:
       - "8004:8004"
-    cpus: "2.0"
+    cpus: "5.0"
     command: uvicorn main:app --host 0.0.0.0 --port 8004 --workers 1
+    user: "0"
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app:/app/VibeVoice-Community:/app/services/presenter:/app/shared
       - DATABASE_URL=postgresql://podcast_user:podcast_pass@postgres:5432/podcast_ai
+      - REDIS_URL=redis://redis:6379
       - OLLAMA_BASE_URL=http://ollama-cpu:11434
       - OLLAMA_MODEL=qwen2:1.5b
       - USE_VIBEVOICE=false
+      - HF_HOME=/app/.cache/huggingface
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - TTS_BACKEND=coqui
+      - COQUI_TOS_AGREED=1
       - WORKERS_ACTIVE=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    runtime: nvidia
     depends_on:
       postgres:
         condition: service_healthy
       ollama-cpu:
         condition: service_started
     volumes:
+      - ./VibeVoice-Community:/app/VibeVoice-Community:ro
       - ./services:/app/services
       - ./shared:/app/shared
+      - storage_data:/app/storage
+      - hf_cache:/app/.cache/huggingface
 
   # TTS Service (VibeVoice audio generation on GPU - ONLY audio!)
   tts:
@@ -335,7 +352,7 @@ services:
   # Ollama GPU - For intensive tasks (Writer script generation)
   ollama:
     image: ollama/ollama:latest
-    cpus: "4.0"
+    cpus: "8.0"
     volumes:
       - ollama_data:/root/.ollama
     ports:
@@ -343,12 +360,14 @@ services:
     environment:
       - OLLAMA_ORIGINS=*
       - OLLAMA_KEEP_ALIVE=0
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_NUM_THREADS=8
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     deploy:
       resources:
         limits:
-          cpus: "4.0"
+          cpus: "8.0"
           memory: "12G"
         reservations:
           devices:
@@ -368,6 +387,7 @@ services:
       - OLLAMA_ORIGINS=*
       - OLLAMA_KEEP_ALIVE=0
       - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_NUM_THREADS=8
     deploy:
       resources:
         limits:

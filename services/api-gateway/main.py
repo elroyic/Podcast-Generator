@@ -49,8 +49,8 @@ import subprocess
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing - use bcrypt directly to avoid passlib compatibility issues
+import bcrypt as bcrypt_lib
 
 app = FastAPI(title="Podcast AI API Gateway", version="1.0.0")
 
@@ -156,12 +156,17 @@ async def call_service(service_name: str, method: str, endpoint: str, **kwargs) 
 # Helper functions for password hashing
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt_lib.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception as e:
+        logger.error(f"Password verification error: {e}")
+        return False
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password."""
-    return pwd_context.hash(password)
+    salt = bcrypt_lib.gensalt()
+    return bcrypt_lib.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 
 # Authentication Endpoints

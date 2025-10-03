@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+## CUDA-enabled PyTorch base (same as Presenter for compatibility)
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
 
 WORKDIR /app
 
@@ -8,11 +9,14 @@ RUN apt-get update && apt-get install -y \
     g++ \
     ffmpeg \
     git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir git+https://github.com/huggingface/transformers.git \
+    && pip install --no-cache-dir hf_transfer
 
 # Copy application code
 COPY . .
