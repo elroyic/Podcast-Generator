@@ -296,6 +296,29 @@ async def health_check():
     return {"status": "healthy", "service": "text-generation", "timestamp": datetime.utcnow()}
 
 
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Simple health metric
+        metrics = []
+        metrics.append("text_generation_service_up 1")
+        
+        prometheus_output = "\n".join([
+            "# HELP text_generation_service_up Service health status",
+            "# TYPE text_generation_service_up gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
+
+
 @app.post("/generate-script", response_model=ScriptGenerationResponse)
 async def generate_script(
     request: ScriptGenerationRequest,

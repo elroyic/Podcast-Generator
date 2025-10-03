@@ -353,6 +353,14 @@ def queue_worker():
     
     while queue_worker_running:
         try:
+            # Check if podcast production is active - if so, pause reviews
+            production_lock_key = "podcast:production:active"
+            if r.exists(production_lock_key):
+                production_info = r.get(production_lock_key)
+                logger.info(f"⏸️ Reviewer paused - Podcast production active: {production_info}")
+                time.sleep(10)  # Wait 10 seconds before checking again
+                continue
+            
             # Get one item from the queue (blocking with timeout)
             raw_item = r.brpop(article_reviewer.queue_key, timeout=5)
             
@@ -690,11 +698,22 @@ async def get_prometheus_metrics():
     except Exception:
         pass
     
+    # Worker count from configuration
+    workers_active = 1
+    try:
+        cfg = article_reviewer.get_config()
+        workers_active = cfg.light_workers
+    except Exception:
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+    
     # Confidence histogram
     hist = r.hgetall(article_reviewer.conf_hist) or {}
     
     # Generate Prometheus format
     metrics = []
+    
+    # Worker metrics
+    metrics.append(f"reviewer_workers_active {workers_active}")
     
     # Latency metrics
     if light_latencies:
@@ -722,6 +741,8 @@ async def get_prometheus_metrics():
         metrics.append(f'reviewer_confidence_bucket_total{{bucket="{bucket}"}} {count}')
     
     prometheus_output = "\n".join([
+        "# HELP reviewer_workers_active Number of active reviewer workers",
+        "# TYPE reviewer_workers_active gauge",
         "# HELP reviewer_light_latency_seconds Average latency for light reviewer",
         "# TYPE reviewer_light_latency_seconds gauge",
         "# HELP reviewer_heavy_latency_seconds Average latency for heavy reviewer", 
@@ -954,10 +975,81 @@ async def stop_worker():
 @app.get("/queue/worker/status")
 async def get_worker_status():
     """Get the current status of the queue worker."""
+    r = article_reviewer.redis
+    production_lock_key = "podcast:production:active"
+    production_active = r.exists(production_lock_key)
+    production_info = None
+    
+    if production_active:
+        try:
+            production_info = json.loads(r.get(production_lock_key))
+        except Exception:
+            production_info = r.get(production_lock_key)
+    
     return {
         "status": "running" if queue_worker_running else "stopped",
         "worker_running": queue_worker_running,
-        "thread_alive": queue_worker_thread.is_alive() if queue_worker_thread else False
+        "thread_alive": queue_worker_thread.is_alive() if queue_worker_thread else False,
+        "production_active": production_active,
+        "production_info": production_info,
+        "paused": production_active
+    }
+
+
+@app.get("/production/status")
+async def get_production_status():
+    """Check if podcast production is currently active."""
+    r = article_reviewer.redis
+    production_lock_key = "podcast:production:active"
+    production_active = r.exists(production_lock_key)
+    production_info = None
+    
+    if production_active:
+        try:
+            production_info = json.loads(r.get(production_lock_key))
+        except Exception:
+            production_info = r.get(production_lock_key)
+    
+    return {
+        "production_active": production_active,
+        "production_info": production_info,
+        "reviewer_paused": production_active,
+        "message": "Reviewer Service is PAUSED during podcast production" if production_active else "Reviewer Service is ACTIVE"
+    }
+
+
+@app.post("/production/pause")
+async def manually_pause_reviews():
+    """Manually pause review processing (admin override)."""
+    r = article_reviewer.redis
+    production_lock_key = "podcast:production:active"
+    lock_value = json.dumps({
+        "manual_pause": True,
+        "paused_at": datetime.utcnow().isoformat(),
+        "reason": "Manual admin override"
+    })
+    # Set lock with 24 hour TTL
+    r.set(production_lock_key, lock_value, ex=24 * 3600)
+    logger.info("🔒 Reviewer Service manually paused by admin")
+    
+    return {
+        "status": "paused",
+        "message": "Reviewer Service has been manually paused",
+        "lock_info": json.loads(lock_value)
+    }
+
+
+@app.post("/production/resume")
+async def manually_resume_reviews():
+    """Manually resume review processing (admin override)."""
+    r = article_reviewer.redis
+    production_lock_key = "podcast:production:active"
+    r.delete(production_lock_key)
+    logger.info("🔓 Reviewer Service manually resumed by admin")
+    
+    return {
+        "status": "active",
+        "message": "Reviewer Service has been manually resumed"
     }
 
 

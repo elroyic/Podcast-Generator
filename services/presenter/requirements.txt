@@ -8,14 +8,13 @@ requests==2.31.0
 python-dotenv==1.0.0
 # torch comes from the CUDA-enabled base image; do not install CPU-only torch here
 # torch==2.1.0
-# Updated Transformers stack for VibeVoice HF model
-transformers>=4.42.0
+# TTS 0.22.0 requires older transformers for BeamSearchScorer
+transformers==4.36.2
 accelerate>=0.33.0
 safetensors>=0.4.3
 sentencepiece>=0.2.0
-diffusers>=0.27.0
-librosa==0.10.1
-soundfile==0.12.1
-numpy==1.24.3
+# librosa and numpy will be installed by TTS with compatible versions
 aiofiles==23.2.1
 pydub==0.25.1
+soundfile==0.12.1
+TTS==0.22.0

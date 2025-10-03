@@ -6,6 +6,18 @@
     <title>Podcast AI - News Feed Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        @media (max-width: 768px) {
+            .mobile-nav-menu {
+                max-height: 0;
+                overflow: hidden;
+                transition: max-height 0.3s ease-out;
+            }
+            .mobile-nav-menu.active {
+                max-height: 500px;
+            }
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <div class="min-h-screen">
@@ -14,27 +26,49 @@
             <div class="max-w-7xl mx-auto px-4">
                 <div class="flex justify-between h-16">
                     <div class="flex items-center">
-                        <h1 class="text-xl font-bold text-gray-800">Podcast AI</h1>
+                        <h1 class="text-lg sm:text-xl font-bold text-gray-800">Podcast AI</h1>
                     </div>
-                    <div class="flex items-center space-x-4">
-                        <a href="/" class="text-gray-600 hover:text-gray-900">Dashboard</a>
-                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
-                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
-                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
-                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
-                        <a href="/news-feed" class="text-gray-900 font-semibold">News Feed</a>
-                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
-                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
+                    <!-- Desktop Navigation -->
+                    <div class="hidden lg:flex items-center space-x-4">
+                        <a href="/" class="text-gray-600 hover:text-gray-900 text-sm">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900 text-sm">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900 text-sm">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900 text-sm">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900 text-sm">Episodes</a>
+                        <a href="/news-feed" class="text-gray-900 font-semibold text-sm">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900 text-sm">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900 text-sm">Writers</a>
+                        <a href="/admin-panel" class="text-gray-600 hover:text-gray-900 text-sm">Admin</a>
+                    </div>
+                    <!-- Mobile menu button -->
+                    <div class="lg:hidden flex items-center">
+                        <button id="mobile-menu-btn" class="text-gray-600 hover:text-gray-900 focus:outline-none">
+                            <i class="bi bi-list text-2xl"></i>
+                        </button>
+                    </div>
+                </div>
+                <!-- Mobile Navigation Menu -->
+                <div id="mobile-menu" class="mobile-nav-menu lg:hidden">
+                    <div class="py-2 space-y-1">
+                        <a href="/" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Dashboard</a>
+                        <a href="/groups" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Groups</a>
+                        <a href="/reviewer" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Reviewer</a>
+                        <a href="/presenters" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Presenters</a>
+                        <a href="/episodes" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Episodes</a>
+                        <a href="/news-feed" class="block px-4 py-2 text-gray-900 font-semibold bg-gray-100">News Feed</a>
+                        <a href="/collections" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Collections</a>
+                        <a href="/writers" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Writers</a>
+                        <a href="/admin-panel" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Admin</a>
                     </div>
                 </div>
             </div>
         </nav>
 
         <!-- Main Content -->
-        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-            <div class="px-4 py-5 sm:px-6">
-                <h2 class="text-2xl font-bold text-gray-800">News Feed Dashboard</h2>
-                <p class="mt-1 max-w-2xl text-sm text-gray-500">Monitor RSS feed performance and article processing</p>
+        <div class="max-w-7xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
+            <div class="py-4 sm:py-5">
+                <h2 class="text-xl sm:text-2xl font-bold text-gray-800">News Feed Dashboard</h2>
+                <p class="mt-1 max-w-2xl text-xs sm:text-sm text-gray-500">Monitor RSS feed performance and article processing</p>
             </div>
 
             <!-- Stats Cards -->
@@ -105,18 +139,18 @@
             </div>
 
             <!-- Feed Performance Chart -->
-            <div class="bg-white shadow rounded-lg p-6 mb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-lg font-medium text-gray-900">Feed Performance (Last 24 Hours)</h3>
+            <div class="bg-white shadow rounded-lg p-4 sm:p-6 mb-8">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-2 sm:space-y-0">
+                    <h3 class="text-base sm:text-lg font-medium text-gray-900">Feed Performance</h3>
                     <div>
-                        <select id="perf-range" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                        <select id="perf-range" class="border border-gray-300 rounded px-2 py-1 text-xs sm:text-sm">
                             <option value="24" selected>24h</option>
                             <option value="12">12h</option>
                             <option value="48">48h</option>
                         </select>
                     </div>
                 </div>
-                <div id="perfChartContainer" class="relative h-64">
+                <div id="perfChartContainer" class="relative h-48 sm:h-64">
                     <canvas id="perfChart" class="w-full h-full"></canvas>
                 </div>
             </div>
@@ -124,20 +158,20 @@
             <!-- Feeds Table -->
             <div class="bg-white shadow overflow-hidden sm:rounded-md">
                 <div class="px-4 py-5 sm:px-6">
-                    <h3 class="text-lg leading-6 font-medium text-gray-900">RSS Feeds</h3>
-                    <p class="mt-1 max-w-2xl text-sm text-gray-500">List of all configured RSS feeds and their status</p>
+                    <h3 class="text-base sm:text-lg leading-6 font-medium text-gray-900">RSS Feeds</h3>
+                    <p class="mt-1 max-w-2xl text-xs sm:text-sm text-gray-500">List of all configured RSS feeds and their status</p>
                 </div>
                 
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
+                    <table class="min-w-full divide-y divide-gray-200 text-xs sm:text-sm">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feed Name</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Fetch</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Articles</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feed Name</th>
+                                <th class="hidden md:table-cell px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
+                                <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="hidden sm:table-cell px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Fetch</th>
+                                <th class="hidden lg:table-cell px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Articles</th>
+                                <th class="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="feeds-table" class="bg-white divide-y divide-gray-200">
@@ -154,37 +188,129 @@
                 </div>
             </div>
 
-            <!-- Recent Articles -->
+            <!-- Article Browser -->
             <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
-                <div class="px-4 py-5 sm:px-6">
-                    <h3 class="text-lg leading-6 font-medium text-gray-900">Recent Articles</h3>
-                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Latest articles processed from RSS feeds</p>
+                <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">All Articles</h3>
+                            <p class="mt-1 text-sm text-gray-500">Browse and filter all collected articles - <span id="total-articles-count" class="font-semibold">0</span> total</p>
+                        </div>
+                        <button onclick="toggleFilters()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm">
+                            <i class="bi bi-funnel"></i> Filters
+                        </button>
+                    </div>
+                    
+                    <!-- Filters Panel -->
+                    <div id="filters-panel" class="hidden bg-gray-50 rounded-lg p-3 sm:p-4 space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                            <!-- Search -->
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Search</label>
+                                <input type="text" id="filter-search" placeholder="Title, content..." 
+                                    class="w-full border border-gray-300 rounded px-3 py-2 text-xs sm:text-sm">
+                            </div>
+                            
+                            <!-- Feed Filter -->
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Feed</label>
+                                <select id="filter-feed" class="w-full border border-gray-300 rounded px-3 py-2 text-xs sm:text-sm">
+                                    <option value="">All Feeds</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Reviewer Type -->
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Reviewer Status</label>
+                                <select id="filter-reviewer" class="w-full border border-gray-300 rounded px-3 py-2 text-xs sm:text-sm">
+                                    <option value="">All</option>
+                                    <option value="unreviewed">Unreviewed</option>
+                                    <option value="light">Light Reviewed</option>
+                                    <option value="heavy">Heavy Reviewed</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Collection Status -->
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Collection</label>
+                                <select id="filter-collection" class="w-full border border-gray-300 rounded px-3 py-2 text-xs sm:text-sm">
+                                    <option value="">All</option>
+                                    <option value="true">In Collection</option>
+                                    <option value="false">Not in Collection</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center justify-between pt-2 border-t border-gray-300">
+                            <div class="flex items-center space-x-2">
+                                <button onclick="applyFilters()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm">
+                                    <i class="bi bi-search"></i> Apply Filters
+                                </button>
+                                <button onclick="clearFilters()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded text-sm">
+                                    <i class="bi bi-x-circle"></i> Clear
+                                </button>
+                            </div>
+                            <div class="text-xs text-gray-600">
+                                <span id="filtered-count">0</span> articles match filters
+                            </div>
+                        </div>
+                    </div>
                 </div>
+                
+                <!-- Articles List -->
                 <ul id="recent-articles" class="divide-y divide-gray-200">
                     <li class="px-6 py-4 text-center text-gray-500">
                         <div class="flex items-center justify-center">
                             <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                            <span class="ml-2">Loading recent articles...</span>
+                            <span class="ml-2">Loading articles...</span>
                         </div>
                     </li>
                 </ul>
+                
+                <!-- Pagination Controls -->
+                <div id="pagination-controls" class="px-3 sm:px-6 py-3 sm:py-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+                    <div class="flex items-center justify-center sm:justify-start">
+                        <span class="text-xs sm:text-sm text-gray-700">
+                            Showing <span id="showing-from">0</span> to <span id="showing-to">0</span> of <span id="showing-total">0</span>
+                        </span>
+                    </div>
+                    <div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-2">
+                        <select id="page-size" class="w-full sm:w-auto border border-gray-300 rounded px-2 py-1 text-xs sm:text-sm" onchange="changePageSize()">
+                            <option value="25">25 per page</option>
+                            <option value="50" selected>50 per page</option>
+                            <option value="100">100 per page</option>
+                            <option value="200">200 per page</option>
+                        </select>
+                        <div class="flex items-center space-x-2">
+                            <button id="prev-page" onclick="previousPage()" disabled
+                                class="px-2 sm:px-3 py-1 border border-gray-300 rounded text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100">
+                                <i class="bi bi-chevron-left"></i><span class="hidden sm:inline"> Previous</span>
+                            </button>
+                            <span class="text-xs sm:text-sm text-gray-700">Page <span id="current-page">1</span></span>
+                            <button id="next-page" onclick="nextPage()" 
+                                class="px-2 sm:px-3 py-1 border border-gray-300 rounded text-xs sm:text-sm hover:bg-gray-100">
+                                <span class="hidden sm:inline">Next </span><i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Quick Actions -->
-            <div class="mt-8 bg-white shadow rounded-lg p-6">
-                <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <button onclick="refreshAllFeeds()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-arrow-clockwise mr-2"></i>Refresh All Feeds
+            <div class="mt-8 bg-white shadow rounded-lg p-4 sm:p-6">
+                <h3 class="text-base sm:text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    <button onclick="refreshAllFeeds()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-arrow-clockwise mr-2"></i>Refresh Feeds
                     </button>
-                    <button onclick="addNewFeed()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-plus-circle mr-2"></i>Add New Feed
+                    <button onclick="addNewFeed()" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-plus-circle mr-2"></i>Add Feed
                     </button>
-                    <button onclick="viewFeedStats()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-graph-up mr-2"></i>View Stats
+                    <button onclick="viewFeedStats()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-graph-up mr-2"></i>Stats
                     </button>
-                    <button onclick="exportFeedData()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-download mr-2"></i>Export Data
+                    <button onclick="exportFeedData()" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-download mr-2"></i>Export
                     </button>
                 </div>
             </div>
@@ -192,30 +318,46 @@
     </div>
 
     <!-- Add Feed Modal -->
-    <div id="feed-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4">
-        <div class="bg-white rounded-lg shadow-lg w-full max-w-lg">
-            <div class="flex items-center justify-between p-4 border-b">
-                <h3 class="text-lg font-semibold">Add New RSS Feed</h3>
+    <div id="feed-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-2 sm:p-4 z-40">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-3 sm:p-4 border-b sticky top-0 bg-white">
+                <h3 class="text-base sm:text-lg font-semibold">Add New RSS Feed</h3>
                 <button id="feed-modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
             </div>
-            <form id="feed-form" class="p-4 space-y-4">
+            <form id="feed-form" class="p-3 sm:p-4 space-y-3 sm:space-y-4">
                 <div>
-                    <label class="block text-sm text-gray-700">Name (optional)</label>
-                    <input id="feed-name" class="mt-1 w-full border rounded px-3 py-2" placeholder="TechCrunch">
+                    <label class="block text-xs sm:text-sm text-gray-700">Name (optional)</label>
+                    <input id="feed-name" class="mt-1 w-full border rounded px-3 py-2 text-sm" placeholder="TechCrunch">
                 </div>
                 <div>
-                    <label class="block text-sm text-gray-700">Source URL</label>
-                    <input id="feed-url" class="mt-1 w-full border rounded px-3 py-2" placeholder="https://example.com/rss">
+                    <label class="block text-xs sm:text-sm text-gray-700">Source URL</label>
+                    <input id="feed-url" class="mt-1 w-full border rounded px-3 py-2 text-sm" placeholder="https://example.com/rss">
                 </div>
                 <div class="flex items-center">
                     <input id="feed-active" type="checkbox" class="mr-2" checked>
-                    <label class="text-sm text-gray-700">Active</label>
+                    <label class="text-xs sm:text-sm text-gray-700">Active</label>
                 </div>
-                <div class="flex justify-end space-x-2 pt-2">
-                    <button type="button" id="feed-btn-cancel" class="px-4 py-2 rounded border">Cancel</button>
-                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded">Add Feed</button>
+                <div class="flex flex-col sm:flex-row justify-end gap-2 sm:space-x-2 pt-2">
+                    <button type="button" id="feed-btn-cancel" class="px-4 py-2 rounded border text-sm">Cancel</button>
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded text-sm">Add Feed</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Article Details Modal -->
+    <div id="article-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-4xl my-4 sm:my-8 max-h-[95vh] flex flex-col">
+            <div class="flex items-center justify-between p-3 sm:p-4 border-b bg-white z-10 rounded-t-lg flex-shrink-0">
+                <h3 class="text-base sm:text-lg font-semibold">Article Details</h3>
+                <button id="article-modal-close" class="text-gray-500 hover:text-gray-700"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div id="article-details-content" class="p-3 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
+                <div class="flex items-center justify-center py-8">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span class="ml-2 text-sm">Loading article details...</span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -308,33 +450,33 @@
                 
                 tableBody.innerHTML = feeds.map(feed => `
                     <tr>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap font-medium text-gray-900">
                             ${feed.name || 'Unnamed Feed'}
                         </td>
-                        <td class="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">
+                        <td class="hidden md:table-cell px-3 sm:px-6 py-4 text-gray-600 max-w-xs truncate">
                             <a href="${feed.source_url}" target="_blank" class="text-blue-600 hover:text-blue-900">
                                 ${feed.source_url}
                             </a>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap">
                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                 feed.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                             }">
                                 ${feed.is_active ? 'Active' : 'Inactive'}
                             </span>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td class="hidden sm:table-cell px-3 sm:px-6 py-4 whitespace-nowrap text-gray-500">
                             ${feed.last_fetched ? new Date(feed.last_fetched).toLocaleString() : 'Never'}
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td class="hidden lg:table-cell px-3 sm:px-6 py-4 whitespace-nowrap text-gray-500">
                             ${feed.article_count || 0}
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <button onclick="refreshFeed('${feed.id}')" class="text-blue-600 hover:text-blue-900 mr-3">
-                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                        <td class="px-3 sm:px-6 py-4 whitespace-nowrap font-medium">
+                            <button onclick="refreshFeed('${feed.id}')" class="text-blue-600 hover:text-blue-900 mr-2" title="Refresh">
+                                <i class="bi bi-arrow-clockwise"></i>
                             </button>
-                            <button onclick="editFeed('${feed.id}')" class="text-green-600 hover:text-green-900">
-                                <i class="bi bi-pencil"></i> Edit
+                            <button onclick="editFeed('${feed.id}')" class="text-green-600 hover:text-green-900" title="Edit">
+                                <i class="bi bi-pencil"></i>
                             </button>
                         </td>
                     </tr>
@@ -352,58 +494,204 @@
             }
         }
 
-        async function loadRecentArticles() {
+        // Pagination state
+        let currentPage = 1;
+        let pageSize = 50;
+        let totalArticles = 0;
+        let currentFilters = {};
+
+        async function loadArticles(page = 1) {
             try {
-                const response = await fetch('/api/news-feed/recent-articles');
-                const articles = await response.json();
+                currentPage = page;
+                const offset = (page - 1) * pageSize;
+                
+                // Build query params
+                const params = new URLSearchParams({
+                    limit: pageSize,
+                    offset: offset
+                });
+                
+                // Add filters
+                if (currentFilters.search) params.append('search', currentFilters.search);
+                if (currentFilters.feed_id) params.append('feed_id', currentFilters.feed_id);
+                if (currentFilters.reviewer_type) params.append('reviewer_type', currentFilters.reviewer_type);
+                if (currentFilters.has_collection !== undefined) params.append('has_collection', currentFilters.has_collection);
+                
+                const response = await fetch(`/api/news-feed/articles?${params}`);
+                const data = await response.json();
+                
+                totalArticles = data.total;
+                const articles = data.articles;
+                
+                // Update counts
+                document.getElementById('total-articles-count').textContent = totalArticles.toLocaleString();
+                document.getElementById('filtered-count').textContent = totalArticles.toLocaleString();
                 
                 const articlesList = document.getElementById('recent-articles');
                 
                 if (articles.length === 0) {
                     articlesList.innerHTML = `
                         <li class="px-6 py-4 text-center text-gray-500">
-                            No recent articles found.
+                            No articles found. ${Object.keys(currentFilters).length > 0 ? 'Try adjusting your filters.' : ''}
                         </li>
                     `;
+                    updatePaginationUI(0, 0, 0);
                     return;
                 }
                 
-                articlesList.innerHTML = articles.map(article => `
-                    <li class="px-6 py-4">
-                        <div class="flex items-center justify-between">
-                            <div class="flex-1 min-w-0">
-                                <p class="text-sm font-medium text-gray-900 truncate">
-                                    ${article.title}
-                                </p>
-                                <p class="text-sm text-gray-500 truncate">
-                                    ${article.feed_name} • ${new Date(article.publish_date).toLocaleDateString()}
-                                </p>
+                articlesList.innerHTML = articles.map(article => {
+                    const collectionBadge = article.collection_name ? 
+                        `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mr-1">
+                            <i class="bi bi-collection mr-1"></i>${article.collection_name}
+                        </span>` : '';
+                    
+                    const tagsBadge = article.review_tags && article.review_tags.length > 0 ?
+                        `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 mr-1">
+                            <i class="bi bi-tags mr-1"></i>${article.review_tags.length}
+                        </span>` : '';
+                    
+                    return `
+                        <li class="px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors" onclick="viewArticleDetails('${article.id}')">
+                            <div class="flex items-center justify-between">
+                                <div class="flex-1 min-w-0 pr-4">
+                                    <p class="text-sm font-medium text-gray-900 truncate">
+                                        ${article.title}
+                                    </p>
+                                    <div class="flex items-center flex-wrap gap-1 mt-1">
+                                        <p class="text-sm text-gray-500">
+                                            ${article.feed_name} • ${article.publish_date ? new Date(article.publish_date).toLocaleDateString() : 'No date'}
+                                        </p>
+                                    </div>
+                                    <div class="flex items-center flex-wrap gap-1 mt-1">
+                                        ${collectionBadge}
+                                        ${tagsBadge}
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                        article.reviewer_type === 'light' ? 'bg-blue-100 text-blue-800' :
+                                        article.reviewer_type === 'heavy' ? 'bg-purple-100 text-purple-800' :
+                                        'bg-gray-100 text-gray-800'
+                                    }">
+                                        ${article.reviewer_type || 'unreviewed'}
+                                    </span>
+                                    ${article.confidence ? `<span class="text-xs text-gray-600">${(article.confidence * 100).toFixed(0)}%</span>` : ''}
+                                    <button onclick="event.stopPropagation(); viewArticleDetails('${article.id}')" 
+                                        class="text-blue-600 hover:text-blue-900 px-2 py-1 rounded hover:bg-blue-50">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    <a href="${article.link}" target="_blank" onclick="event.stopPropagation()" 
+                                        class="text-blue-600 hover:text-blue-900">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                </div>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    article.reviewer_type === 'light' ? 'bg-blue-100 text-blue-800' :
-                                    article.reviewer_type === 'heavy' ? 'bg-purple-100 text-purple-800' :
-                                    'bg-gray-100 text-gray-800'
-                                }">
-                                    ${article.reviewer_type || 'unreviewed'}
-                                </span>
-                                <a href="${article.link}" target="_blank" class="text-blue-600 hover:text-blue-900">
-                                    <i class="bi bi-box-arrow-up-right"></i>
-                                </a>
-                            </div>
-                        </div>
-                    </li>
-                `).join('');
+                        </li>
+                    `;
+                }).join('');
+                
+                // Update pagination UI
+                const showingFrom = offset + 1;
+                const showingTo = Math.min(offset + articles.length, totalArticles);
+                updatePaginationUI(showingFrom, showingTo, totalArticles);
                 
             } catch (error) {
-                console.error('Error loading recent articles:', error);
+                console.error('Error loading articles:', error);
                 document.getElementById('recent-articles').innerHTML = `
                     <li class="px-6 py-4 text-center text-red-500">
-                        Error loading recent articles: ${error.message}
+                        Error loading articles: ${error.message}
                     </li>
                 `;
             }
         }
+
+        function updatePaginationUI(from, to, total) {
+            document.getElementById('showing-from').textContent = from;
+            document.getElementById('showing-to').textContent = to;
+            document.getElementById('showing-total').textContent = total.toLocaleString();
+            document.getElementById('current-page').textContent = currentPage;
+            
+            // Update button states
+            document.getElementById('prev-page').disabled = currentPage <= 1;
+            document.getElementById('next-page').disabled = to >= total;
+        }
+
+        function toggleFilters() {
+            const panel = document.getElementById('filters-panel');
+            panel.classList.toggle('hidden');
+        }
+
+        async function loadFeedsList() {
+            try {
+                const response = await fetch('/api/news-feeds');
+                const feeds = await response.json();
+                const select = document.getElementById('filter-feed');
+                
+                feeds.forEach(feed => {
+                    const option = document.createElement('option');
+                    option.value = feed.id;
+                    option.textContent = feed.name || feed.source_url;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading feeds list:', error);
+            }
+        }
+
+        function applyFilters() {
+            currentFilters = {};
+            
+            const search = document.getElementById('filter-search').value.trim();
+            if (search) currentFilters.search = search;
+            
+            const feedId = document.getElementById('filter-feed').value;
+            if (feedId) currentFilters.feed_id = feedId;
+            
+            const reviewerType = document.getElementById('filter-reviewer').value;
+            if (reviewerType) currentFilters.reviewer_type = reviewerType;
+            
+            const hasCollection = document.getElementById('filter-collection').value;
+            if (hasCollection) currentFilters.has_collection = hasCollection === 'true';
+            
+            // Reset to page 1 when applying filters
+            loadArticles(1);
+        }
+
+        function clearFilters() {
+            document.getElementById('filter-search').value = '';
+            document.getElementById('filter-feed').value = '';
+            document.getElementById('filter-reviewer').value = '';
+            document.getElementById('filter-collection').value = '';
+            currentFilters = {};
+            loadArticles(1);
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                loadArticles(currentPage - 1);
+            }
+        }
+
+        function nextPage() {
+            const maxPage = Math.ceil(totalArticles / pageSize);
+            if (currentPage < maxPage) {
+                loadArticles(currentPage + 1);
+            }
+        }
+
+        function changePageSize() {
+            pageSize = parseInt(document.getElementById('page-size').value);
+            loadArticles(1);
+        }
+
+        // Add Enter key support for search
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('filter-search')?.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    applyFilters();
+                }
+            });
+        });
 
         async function refreshAllFeeds() {
             try {
@@ -414,7 +702,7 @@
                     alert(`✅ ${msg}`);
                     loadFeedStats();
                     loadFeeds();
-                    setTimeout(loadRecentArticles, 3000);
+                    setTimeout(() => loadArticles(1), 3000);
                 } else {
                     alert(`❌ Failed to refresh feeds: ${data.detail || 'Unknown error'}`);
                 }
@@ -463,11 +751,182 @@
             alert(`Edit Feed ${feedId} functionality - to be implemented`);
         }
 
+        async function viewArticleDetails(articleId) {
+            try {
+                // Show modal
+                const modal = document.getElementById('article-modal');
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                
+                // Fetch article details
+                const response = await fetch(`/api/news-feed/articles/${articleId}`);
+                const article = await response.json();
+                
+                // Build article details HTML
+                const detailsHtml = `
+                    <div class="space-y-6">
+                        <!-- Title and Basic Info -->
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-900 mb-2">${article.title}</h2>
+                            <div class="flex flex-wrap gap-2 text-sm text-gray-600">
+                                <span><i class="bi bi-calendar"></i> ${article.publish_date ? new Date(article.publish_date).toLocaleString() : 'N/A'}</span>
+                                <span><i class="bi bi-rss"></i> ${article.feed_name}</span>
+                                ${article.confidence ? `<span><i class="bi bi-speedometer"></i> Confidence: ${(article.confidence * 100).toFixed(1)}%</span>` : ''}
+                            </div>
+                            <div class="mt-2">
+                                <a href="${article.link}" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">
+                                    <i class="bi bi-link-45deg"></i> View Original Article
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Collection -->
+                        ${article.collection_id ? `
+                        <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                            <h3 class="text-sm font-semibold text-purple-900 mb-2"><i class="bi bi-collection"></i> Collection</h3>
+                            <p class="text-purple-800">${article.collection_name}</p>
+                            <a href="/collections" class="text-sm text-purple-600 hover:text-purple-800 mt-1 inline-block">
+                                View Collection →
+                            </a>
+                        </div>
+                        ` : '<div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-gray-600"><i class="bi bi-collection"></i> Not added to any collection yet</div>'}
+
+                        <!-- Tags -->
+                        ${article.review_tags && article.review_tags.length > 0 ? `
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <h3 class="text-sm font-semibold text-blue-900 mb-2"><i class="bi bi-tags"></i> Tags</h3>
+                            <div class="flex flex-wrap gap-2">
+                                ${article.review_tags.map(tag => `
+                                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                        ${tag}
+                                    </span>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Reviewer Summary -->
+                        ${article.review_summary ? `
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                            <h3 class="text-sm font-semibold text-green-900 mb-2"><i class="bi bi-check-circle"></i> Reviewer Summary</h3>
+                            <p class="text-green-800 text-sm">${article.review_summary}</p>
+                            ${article.reviewer_type ? `
+                                <div class="mt-2">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                        article.reviewer_type === 'light' ? 'bg-blue-100 text-blue-800' :
+                                        article.reviewer_type === 'heavy' ? 'bg-purple-100 text-purple-800' :
+                                        'bg-gray-100 text-gray-800'
+                                    }">
+                                        ${article.reviewer_type} reviewer
+                                    </span>
+                                </div>
+                            ` : ''}
+                        </div>
+                        ` : ''}
+
+                        <!-- Linked Podcasts -->
+                        ${article.linked_episodes && article.linked_episodes.length > 0 ? `
+                        <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                            <h3 class="text-sm font-semibold text-orange-900 mb-3"><i class="bi bi-broadcast"></i> Linked Podcasts</h3>
+                            <div class="space-y-2">
+                                ${article.linked_episodes.map(episode => `
+                                    <div class="flex items-center justify-between bg-white p-3 rounded border border-orange-100">
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">${episode.group_name}</p>
+                                            <p class="text-xs text-gray-500">Created: ${new Date(episode.created_at).toLocaleDateString()}</p>
+                                        </div>
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            episode.status === 'published' ? 'bg-green-100 text-green-800' :
+                                            episode.status === 'voiced' ? 'bg-blue-100 text-blue-800' :
+                                            'bg-gray-100 text-gray-800'
+                                        }">
+                                            ${episode.status}
+                                        </span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : '<div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-gray-600"><i class="bi bi-broadcast"></i> Not used in any podcast episodes yet</div>'}
+
+                        <!-- Summary -->
+                        ${article.summary ? `
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-2"><i class="bi bi-card-text"></i> Summary</h3>
+                            <div class="bg-gray-50 rounded-lg p-4 text-sm text-gray-700">
+                                ${article.summary}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Full Article Content -->
+                        ${article.content ? `
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-2"><i class="bi bi-file-text"></i> Extracted Article Content</h3>
+                            <div class="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-700 max-h-96 overflow-y-auto">
+                                ${article.content.substring(0, 5000)}${article.content.length > 5000 ? '...' : ''}
+                            </div>
+                            ${article.content.length > 5000 ? `
+                                <p class="text-xs text-gray-500 mt-2">
+                                    <i class="bi bi-info-circle"></i> Showing first 5000 characters of ${article.content.length} total
+                                </p>
+                            ` : ''}
+                        </div>
+                        ` : '<div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-gray-600"><i class="bi bi-file-text"></i> No article content extracted</div>'}
+
+                        <!-- Metadata -->
+                        <div class="border-t pt-4">
+                            <h3 class="text-xs font-semibold text-gray-500 mb-2">METADATA</h3>
+                            <div class="grid grid-cols-2 gap-4 text-xs text-gray-600">
+                                <div>
+                                    <span class="font-medium">Article ID:</span> ${article.id}
+                                </div>
+                                <div>
+                                    <span class="font-medium">Feed ID:</span> ${article.feed_id}
+                                </div>
+                                ${article.processed_at ? `
+                                <div>
+                                    <span class="font-medium">Processed:</span> ${new Date(article.processed_at).toLocaleString()}
+                                </div>
+                                ` : ''}
+                                ${article.created_at ? `
+                                <div>
+                                    <span class="font-medium">Ingested:</span> ${new Date(article.created_at).toLocaleString()}
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('article-details-content').innerHTML = detailsHtml;
+                
+            } catch (error) {
+                console.error('Error loading article details:', error);
+                document.getElementById('article-details-content').innerHTML = `
+                    <div class="text-center text-red-500 py-8">
+                        <i class="bi bi-exclamation-circle text-4xl"></i>
+                        <p class="mt-2">Error loading article details: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
         // Load data on page load
         document.addEventListener('DOMContentLoaded', function() {
+            // Mobile menu toggle
+            const menuBtn = document.getElementById('mobile-menu-btn');
+            const mobileMenu = document.getElementById('mobile-menu');
+            
+            if (menuBtn && mobileMenu) {
+                menuBtn.addEventListener('click', () => {
+                    mobileMenu.classList.toggle('active');
+                });
+            }
+
             loadFeedStats();
             loadFeeds();
-            loadRecentArticles();
+            loadFeedsList();
+            loadArticles(1);
             loadPerformance();
             document.getElementById('perf-range').addEventListener('change', (e) => {
                 loadPerformance(parseInt(e.target.value, 10));
@@ -478,6 +937,11 @@
                 if (!btn) return;
                 if (btn.id === 'feed-modal-close' || btn.id === 'feed-btn-cancel') {
                     const modal = document.getElementById('feed-modal');
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                }
+                if (btn.id === 'article-modal-close') {
+                    const modal = document.getElementById('article-modal');
                     modal.classList.add('hidden');
                     modal.classList.remove('flex');
                 }

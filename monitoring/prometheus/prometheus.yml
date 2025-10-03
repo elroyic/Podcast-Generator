@@ -1,0 +1,125 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'podcast-ai'
+    environment: 'production'
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # API Gateway
+  - job_name: 'api-gateway'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api-gateway:8000']
+        labels:
+          service: 'api-gateway'
+
+  # Reviewer Services
+  - job_name: 'reviewer'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['reviewer:8008']
+        labels:
+          service: 'reviewer'
+          tier: 'orchestrator'
+
+  - job_name: 'light-reviewer'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['light-reviewer:8000']
+        labels:
+          service: 'light-reviewer'
+          tier: 'light'
+
+  - job_name: 'heavy-reviewer'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['heavy-reviewer:8000']
+        labels:
+          service: 'heavy-reviewer'
+          tier: 'heavy'
+
+  # News Feed Service
+  - job_name: 'news-feed'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['news-feed:8001']
+        labels:
+          service: 'news-feed'
+
+  # Text Generation Service
+  - job_name: 'text-generation'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['text-generation:8002']
+        labels:
+          service: 'text-generation'
+
+  # Writer Service
+  - job_name: 'writer'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['writer:8003']
+        labels:
+          service: 'writer'
+
+  # Presenter Service
+  - job_name: 'presenter'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['presenter:8004']
+        labels:
+          service: 'presenter'
+
+  # Editor Service
+  - job_name: 'editor'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['editor:8009']
+        labels:
+          service: 'editor'
+
+  # Collections Service
+  - job_name: 'collections'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['collections:8011']
+        labels:
+          service: 'collections'
+
+  # Publishing Service
+  - job_name: 'publishing'
+    metrics_path: '/metrics/prometheus'
+    static_configs:
+      - targets: ['publishing:8005']
+        labels:
+          service: 'publishing'
+
+  # Database (PostgreSQL Exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+
+  # Redis (Redis Exporter)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+
+# Alerting rules (can be added later via volume mount)
+# rule_files:
+#   - '/etc/prometheus/alerts/*.yml'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']

@@ -146,76 +146,59 @@ class VibeVoiceTTS:
         self.processor = None
         self.is_loaded = False
         self.use_vibevoice = os.getenv("USE_VIBEVOICE", "true").lower() == "true"
-        self.model_id = os.getenv("HF_MODEL_ID", "aoi-ot/VibeVoice-Large")
+        self.model_id = os.getenv("HF_MODEL_ID", "vibevoice/VibeVoice-1.5B")
         
         if self.use_vibevoice:
             self._load_model()
     
     def _load_model(self):
-        """Load the HF model specified via HF_MODEL_ID."""
+        """Load the VibeVoice model using the correct processor and model classes."""
         try:
-            logger.info(f"Loading HF TTS model '{self.model_id}' on {self.device}")
-            from transformers import AutoModel, AutoProcessor, AutoTokenizer, AutoModelForCausalLM
+            logger.info(f"Loading VibeVoice model '{self.model_id}' on {self.device}")
+            from vibevoice.modular.modeling_vibevoice_inference import (
+                VibeVoiceForConditionalGenerationInference,
+            )
+            from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
 
-            # Try AutoProcessor first; if missing, fall back to AutoTokenizer
-            self.processor = None
-            try:
-                self.processor = AutoProcessor.from_pretrained(
-                    self.model_id, trust_remote_code=True
-                )
-            except Exception:
-                try:
-                    self.processor = AutoTokenizer.from_pretrained(
-                        self.model_id, trust_remote_code=True
-                    )
-                except Exception:
-                    self.processor = None
+            # Load processor
+            logger.info("Loading VibeVoiceProcessor...")
+            self.processor = VibeVoiceProcessor.from_pretrained(self.model_id)
 
-            # Load model with remote code enabled
-            dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+            # Determine dtype based on device - always use float32 to avoid bfloat16 issues on CPU
+            dtype = torch.float32
+            attn_impl = "sdpa"  # Use SDPA (CPU and GPU compatible)
+            
+            logger.info(f"Loading model with dtype={dtype}, attn_implementation={attn_impl}")
+            
+            # Load model
             try:
-                # Load via AutoModelForCausalLM after community registry import
-                from vibevoice.modular.modeling_vibevoice_inference import (
-                    VibeVoiceForConditionalGenerationInference,
-                )
-                from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
-                from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
-                logger.info("Community registry imported; attempting AutoModelForCausalLM...")
-                self.model = AutoModelForCausalLM.from_pretrained(
+                self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
                     self.model_id,
-                    trust_remote_code=False,
                     torch_dtype=dtype,
-                    device_map="auto",
-                    low_cpu_mem_usage=True,
+                    device_map=str(self.device) if str(self.device) in ("cuda", "cpu") else None,
+                    attn_implementation=attn_impl,
                 )
-                self.model.eval()
-                self.is_loaded = True
-                logger.info("✅ Model loaded via AutoModelForCausalLM")
-                return
             except Exception as e:
-                logger.warning(f"AutoModelForCausalLM failed: {e}; trying community class...")
-                try:
-                    from vibevoice.modular.modeling_vibevoice_inference import (
-                        VibeVoiceForConditionalGenerationInference,
-                    )
+                if attn_impl == 'flash_attention_2':
+                    logger.warning(f"Flash attention failed: {e}, falling back to SDPA")
                     self.model = VibeVoiceForConditionalGenerationInference.from_pretrained(
                         self.model_id,
                         torch_dtype=dtype,
-                        device_map="auto",
-                        low_cpu_mem_usage=True,
+                        device_map=str(self.device) if str(self.device) in ("cuda", "cpu") else None,
+                        attn_implementation='sdpa',
                     )
-                    self.model.eval()
-                    self.is_loaded = True
-                    logger.info("✅ Loaded VibeVoice-Community model directly")
-                    return
-                except Exception as le:
-                    logger.warning(f"Failed to load VibeVoice-Community model: {le}")
+                else:
+                    raise e
             
-        except ImportError as e:
-            logger.warning(f"VibeVoice not available: {e}")
-            self.is_loaded = False
+            self.model.eval()
+            self.model.set_ddpm_inference_steps(num_steps=10)
+            self.is_loaded = True
+            logger.info("✅ VibeVoice model loaded successfully")
+            
         except Exception as e:
-            logger.warning(f"Failed to load HF TTS model: {e}")
+            logger.error(f"Failed to load VibeVoice model: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             self.is_loaded = False
     
     def generate_speech(self, text: str, voice_id: str = "default") -> np.ndarray:
@@ -229,86 +212,133 @@ class VibeVoiceTTS:
         return self._generate_vibevoice_speech(text, voice_id)
     
     def _generate_vibevoice_speech(self, text: str, voice_id: str) -> np.ndarray:
-        """Generate speech using VibeVoice model."""
+        """Generate speech using VibeVoice model with proper API."""
         try:
             logger.info(f"Generating speech with {self.model_id} for voice: {voice_id}")
             logger.info(f"Text length: {len(text)} characters")
             
-            # Process text chunks to avoid memory issues
-            max_chunk_length = 500
-            if len(text) > max_chunk_length:
-                chunks = [text[i:i+max_chunk_length] for i in range(0, len(text), max_chunk_length)]
+            # Clean the text first - remove <think> tags and markdown formatting
+            import re
+            cleaned_text = text
+            
+            # Remove <think> tags and their content
+            cleaned_text = re.sub(r'<think>.*?</think>', '', cleaned_text, flags=re.DOTALL)
+            
+            # Remove markdown bold from Speaker labels: **Speaker X:** → Speaker X:
+            cleaned_text = re.sub(r'\*\*Speaker\s+(\d+):\*\*', r'Speaker \1:', cleaned_text)
+            
+            # Remove any remaining markdown formatting
+            cleaned_text = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned_text)  # Bold
+            cleaned_text = re.sub(r'\*([^*]+)\*', r'\1', cleaned_text)      # Italic
+            
+            # Remove "=== EDITED SCRIPT ===" and "=== REVIEW NOTES ===" markers
+            cleaned_text = re.sub(r'===\s*EDITED SCRIPT\s*===', '', cleaned_text, flags=re.IGNORECASE)
+            cleaned_text = re.sub(r'===\s*REVIEW NOTES\s*===.*$', '', cleaned_text, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Clean up excessive whitespace
+            cleaned_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_text)
+            cleaned_text = cleaned_text.strip()
+            
+            logger.info(f"Cleaned text length: {len(cleaned_text)} characters")
+            
+            # VibeVoice expects scripts formatted as "Speaker X: text"
+            # If the text doesn't have this format, wrap it
+            if not cleaned_text.strip().startswith("Speaker "):
+                # Format as single speaker script
+                formatted_text = f"Speaker 1: {cleaned_text}"
+                logger.info("Formatted plain text as Speaker 1 script")
             else:
-                chunks = [text]
+                formatted_text = cleaned_text
             
-            audio_chunks = []
+            # VibeVoice requires voice samples - assign different voices to speakers
+            # Map Speaker 1-4 to different voice samples
+            voice_mapping = {
+                1: "/app/VibeVoice-Community/demo/voices/en-Carter_man.wav",    # Speaker 1: Male voice
+                2: "/app/VibeVoice-Community/demo/voices/en-Maya_woman.wav",     # Speaker 2: Female voice  
+                3: "/app/VibeVoice-Community/demo/voices/en-Frank_man.wav",      # Speaker 3: Male voice
+                4: "/app/VibeVoice-Community/demo/voices/en-Alice_woman.wav"     # Speaker 4: Female voice
+            }
             
-            for i, chunk in enumerate(chunks):
-                logger.info(f"Processing chunk {i+1}/{len(chunks)}")
-                
-                audio_array = None
-                # Common path: processor -> model.generate(**inputs)
-                if self.processor is not None:
-                    try:
-                        inputs = self.processor(chunk, return_tensors="pt", padding=True, truncation=True)
-                        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                        with torch.no_grad():
-                            audio_outputs = self.model.generate(**inputs)  # trust_remote_code may override
-                        if hasattr(audio_outputs, 'cpu'):
-                            audio_array = audio_outputs.cpu().numpy()
-                        else:
-                            audio_array = np.array(audio_outputs)
-                    except Exception:
-                        audio_array = None
-                
-                # Fallback path: custom method names exposed by trust_remote_code repos
-                if audio_array is None:
-                    gen_fn = None
-                    for name in [
-                        'generate_speech', 'tts', 'inference', 'infer', 'generate_audio'
-                    ]:
-                        if hasattr(self.model, name):
-                            gen_fn = getattr(self.model, name)
-                            break
-                    if gen_fn is None:
-                        raise RuntimeError("Loaded model does not expose a known TTS generation method")
-                    with torch.no_grad():
-                        result = gen_fn(chunk)
-                    # Normalize result to numpy 1D or 2D
-                    if isinstance(result, np.ndarray):
-                        audio_array = result
-                    elif hasattr(result, 'cpu'):
-                        audio_array = result.cpu().numpy()
-                    elif isinstance(result, (list, tuple)):
-                        audio_array = np.array(result)
-                    else:
-                        raise RuntimeError("Unknown audio result format from model")
-                
-                if audio_array.ndim > 1:
-                    audio_array = audio_array.flatten()
-                
-                audio_chunks.append(audio_array)
+            # Detect which speakers are in the script
+            import re
+            speaker_matches = re.findall(r'Speaker\s+(\d+)\s*:', formatted_text)
+            unique_speakers = sorted(set(int(s) for s in speaker_matches))
             
-            # Concatenate all chunks
-            full_audio = np.concatenate(audio_chunks)
+            # Build voice samples list in order
+            voice_samples = [voice_mapping.get(speaker, voice_mapping[1]) for speaker in unique_speakers]
+            logger.info(f"Using {len(voice_samples)} voices for speakers: {unique_speakers}")
             
-            # Ensure it's stereo
-            if full_audio.ndim == 1:
-                # Convert to stereo by duplicating mono channel
-                full_audio = np.stack([full_audio, full_audio], axis=-1)
+            # Prepare inputs using VibeVoiceProcessor
+            inputs = self.processor(
+                text=[formatted_text],  # Wrap in list for batch processing
+                voice_samples=[voice_samples],  # Voice sample for the speaker
+                padding=True,
+                return_tensors="pt",
+                return_attention_mask=True,
+            )
             
-            logger.info(f"✅ Generated VibeVoice audio: {full_audio.shape}")
-            return full_audio
+            # Move tensors to target device
+            for k, v in inputs.items():
+                if torch.is_tensor(v):
+                    inputs[k] = v.to(self.device)
+            
+            # Generate audio using the model
+            logger.info("Running model.generate()...")
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=None,
+                    cfg_scale=1.3,  # Default CFG scale from demo
+                    tokenizer=self.processor.tokenizer,
+                    generation_config={'do_sample': False},
+                    verbose=False,
+                )
+            
+            # Extract audio from outputs
+            if not outputs.speech_outputs or outputs.speech_outputs[0] is None:
+                raise RuntimeError("No audio output generated by model")
+            
+            # Get the audio tensor (first batch item)
+            audio_tensor = outputs.speech_outputs[0]
+            
+            # Convert to numpy
+            if hasattr(audio_tensor, 'cpu'):
+                audio_array = audio_tensor.cpu().numpy()
+            else:
+                audio_array = np.array(audio_tensor)
+            
+            # Ensure it's 1D (flatten if needed)
+            if audio_array.ndim > 1:
+                audio_array = audio_array.flatten()
+            
+            # Convert to stereo by duplicating mono channel
+            audio_stereo = np.stack([audio_array, audio_array], axis=-1)
+            
+            logger.info(f"✅ Generated VibeVoice audio: {audio_stereo.shape}")
+            return audio_stereo
             
         except Exception as e:
-            logger.error(f"HF TTS generation failed: {e}")
-            raise Exception(f"HF speech generation failed: {str(e)}")
+            logger.error(f"VibeVoice TTS generation failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise Exception(f"VibeVoice speech generation failed: {str(e)}")
     
 
 
 # Global instances
-vibevoice_tts = VibeVoiceTTS()
+# vibevoice_tts = VibeVoiceTTS()  # Disabled for POC - using Piper instead
 ollama_client = OllamaClient()
+
+# Import Coqui XTTS for local, multi-speaker audio generation
+try:
+    from coqui_tts import CoquiTTS
+    coqui_tts = CoquiTTS()
+    USE_COQUI = True
+    logger.info("✅ Using Coqui XTTS v2 for local audio generation")
+except Exception as e:
+    coqui_tts = None
+    USE_COQUI = False
+    logger.error(f"❌ Coqui TTS not available: {e}")
 
 
 class PersonaPresenter:
@@ -531,7 +561,8 @@ persona_presenter = PersonaPresenter()
 
 
 def create_mp3_audio_file(episode_id: UUID, script: str) -> str:
-    """Create an actual MP3 audio file from script using VibeVoice."""
+    """Create an actual MP3 audio file from script using Piper TTS."""
+    from pathlib import Path
     
     # Ensure storage directory exists: /app/storage/episodes/{episode_id}
     episode_dir = os.path.join(AUDIO_STORAGE_PATH, "episodes", str(episode_id))
@@ -543,43 +574,32 @@ def create_mp3_audio_file(episode_id: UUID, script: str) -> str:
     
     logger.info(f"Generating {target_duration}-second audio for episode {episode_id}")
     
+    if not USE_COQUI or not coqui_tts:
+        raise Exception("Coqui TTS not available")
+    
     try:
-        # Generate audio using VibeVoice
-        logger.info("🎤 Generating audio with VibeVoice TTS")
-        audio_array = vibevoice_tts.generate_speech(script)
+        # Generate audio using Coqui XTTS v2
+        logger.info("🎤 Generating audio with Coqui XTTS v2 (local, multi-speaker)")
         
-        # Create temporary WAV file
-        temp_wav = os.path.join(episode_dir, "temp_audio.wav")
+        mp3_path = Path(episode_dir) / "audio.mp3"
         
-        # Save as WAV first (VibeVoice generates numpy array)
-        if audio_array.ndim == 1:
-            # Convert mono to stereo
-            audio_array = np.stack([audio_array, audio_array], axis=-1)
-        
-        sf.write(temp_wav, audio_array, SAMPLE_RATE)
-        
-        # Convert WAV to MP3 using pydub
-        audio_segment = AudioSegment.from_wav(temp_wav)
-        mp3_path = os.path.join(episode_dir, "audio.mp3")
-        
-        # Ensure stereo and export as MP3
-        audio_segment = audio_segment.set_channels(2)
-        audio_segment.export(
-            mp3_path,
-            format="mp3",
-            bitrate=f"{BIT_RATE}k",
-            parameters=["-ac", "2"]  # Stereo audio
+        # Generate multi-speaker audio with Coqui
+        result = coqui_tts.generate_multi_speaker_audio(
+            script=script,
+            output_path=mp3_path
         )
         
-        # Clean up temporary WAV
-        os.remove(temp_wav)
-        
-        logger.info(f"✅ Created VibeVoice MP3 file: {mp3_path}")
-        return mp3_path
+        logger.info(
+            f"✅ Created Coqui MP3 file: {mp3_path} "
+            f"({result['duration_seconds']:.1f}s, {result['speakers_used']} voices)"
+        )
+        return str(mp3_path)
         
     except Exception as e:
-        logger.error(f"❌ VibeVoice generation failed: {e}")
-        raise Exception(f"Failed to generate audio with VibeVoice: {str(e)}")
+        logger.error(f"❌ Coqui generation failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise Exception(f"Failed to generate audio with Coqui: {str(e)}")
 
 
 # Create tables on startup
@@ -709,9 +729,8 @@ async def get_presenter(presenter_id: UUID, db: Session = Depends(get_db)):
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    # Check if VibeVoice is available
-    vibevoice_status = "loaded" if vibevoice_tts.is_loaded else "failed"
-    vibevoice_enabled = vibevoice_tts.use_vibevoice
+    # Check if Coqui TTS is available
+    coqui_status = "available" if USE_COQUI and coqui_tts else "unavailable"
     
     # Check if Ollama is available for presenter reviews
     ollama_status = "unknown"
@@ -722,20 +741,18 @@ async def health_check():
     except Exception:
         ollama_status = "unavailable"
     
-    # Service is healthy if either VibeVoice or Ollama is working
-    overall_status = "healthy" if (vibevoice_enabled and vibevoice_tts.is_loaded) or ollama_status == "available" else "unhealthy"
+    # Service is healthy if either Coqui or Ollama is working
+    overall_status = "healthy" if coqui_status == "available" or ollama_status == "available" else "unhealthy"
     
     return {
         "status": overall_status,
         "service": "presenter-service", 
-        "vibevoice_enabled": vibevoice_enabled,
-        "vibevoice_status": vibevoice_status,
-        "model_loaded": vibevoice_tts.is_loaded,
-        "device": str(vibevoice_tts.device),
+        "tts_backend": "coqui_xtts_v2" if USE_COQUI else "none",
+        "coqui_status": coqui_status,
         "ollama_status": ollama_status,
         "ollama_url": OLLAMA_BASE_URL,
         "features": {
-            "audio_generation": vibevoice_enabled and vibevoice_tts.is_loaded,
+            "audio_generation": USE_COQUI and coqui_tts is not None,
             "presenter_reviews": ollama_status == "available"
         },
         "timestamp": datetime.utcnow()
@@ -756,11 +773,22 @@ async def get_prometheus_metrics():
     """Prometheus-compatible metrics endpoint."""
     from fastapi.responses import PlainTextResponse
     
+    # Get worker count from environment or default to 1
+    workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+    
     metrics = []
+    
+    # Worker metrics
+    metrics.append(f"presenter_workers_active {workers_active}")
     
     # Audio generation metrics
     metrics.append(f"presenter_audio_generated_total {METRICS_STORAGE['total_audio_generated']}")
     metrics.append(f"presenter_failures_total {METRICS_STORAGE['total_failures']}")
+    
+    # Reviews per hour (estimate based on audio generated in recent time)
+    # This is a simplified calculation - could be enhanced with timestamped metrics
+    reviews_per_hour = METRICS_STORAGE.get('total_audio_generated', 0)  # Placeholder
+    metrics.append(f"presenter_reviews_per_hour {reviews_per_hour}")
     
     # Duration metrics
     if METRICS_STORAGE["total_audio_generated"] > 0:
@@ -774,10 +802,14 @@ async def get_prometheus_metrics():
         metrics.append(f"presenter_last_generation_timestamp {METRICS_STORAGE['last_generation_time']}")
     
     prometheus_output = "\n".join([
+        "# HELP presenter_workers_active Number of active workers",
+        "# TYPE presenter_workers_active gauge",
         "# HELP presenter_audio_generated_total Total audio files generated",
         "# TYPE presenter_audio_generated_total counter",
         "# HELP presenter_failures_total Total generation failures",
         "# TYPE presenter_failures_total counter",
+        "# HELP presenter_reviews_per_hour Collection reviews processed per hour",
+        "# TYPE presenter_reviews_per_hour gauge",
         "# HELP presenter_audio_duration_seconds Average audio duration",
         "# TYPE presenter_audio_duration_seconds gauge",
         "# HELP presenter_last_generation_timestamp Last generation timestamp",
@@ -807,7 +839,8 @@ async def generate_audio(request: AudioGenerationRequest):
         actual_duration = len(audio_segment) / 1000.0  # Convert from milliseconds
         
         generation_metadata = {
-            "model_used": os.getenv("HF_MODEL_ID", "aoi-ot/VibeVoice-Large"),
+            "model_used": "Coqui XTTS v2 (local, multi-speaker)",
+            "tts_backend": "coqui_xtts_v2",
             "voice_settings": request.voice_settings or {},
             "presenter_ids": [str(pid) for pid in request.presenter_ids],
             "generation_timestamp": datetime.utcnow().isoformat(),
@@ -815,7 +848,8 @@ async def generate_audio(request: AudioGenerationRequest):
             "sample_rate": SAMPLE_RATE,
             "bit_rate": BIT_RATE,
             "audio_format": "mp3",
-            "channels": 2  # Stereo
+            "channels": 2,  # Stereo
+            "poc_note": "Using Coqui XTTS v2 for POC; local TTS on current hardware"
         }
         
         # Update metrics
@@ -856,7 +890,7 @@ async def test_audio_generation(test_text: str = "Hello, this is a test of the t
             "duration_seconds": int(actual_duration),
             "file_size_bytes": file_size,
             "format": "mp3",
-            "model_used": os.getenv("HF_MODEL_ID", "aoi-ot/VibeVoice-Large"),
+            "model_used": os.getenv("HF_MODEL_ID", "vibevoice/VibeVoice-1.5B"),
             "timestamp": datetime.utcnow().isoformat()
         }
         

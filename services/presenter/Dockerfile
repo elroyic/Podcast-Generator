@@ -4,19 +4,18 @@ FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for Coqui TTS (including espeak-ng for VCTK)
 RUN apt-get update && apt-get install -y \
     gcc \
     ffmpeg \
     git \
     curl \
+    espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir git+https://github.com/huggingface/transformers.git \
-    && pip install --no-cache-dir hf_transfer
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy service code
 COPY . .

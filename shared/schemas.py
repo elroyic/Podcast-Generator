@@ -260,6 +260,7 @@ class PublishRecord(PublishRecordBase):
 class GenerationRequest(BaseSchema):
     group_id: UUID
     force_regenerate: bool = False
+    collection_id: Optional[UUID] = None
 
 
 class GenerationResponse(BaseSchema):
@@ -278,3 +279,33 @@ class ErrorResponse(BaseSchema):
     error: str
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# User schemas
+class UserBase(BaseSchema):
+    username: str
+    email: str
+    role: str = "user"
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserUpdate(BaseSchema):
+    email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserPasswordUpdate(BaseSchema):
+    current_password: str
+    new_password: str
+
+
+class User(UserBase):
+    id: UUID
+    is_active: bool = True
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    last_login: Optional[datetime] = None

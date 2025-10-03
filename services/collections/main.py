@@ -341,6 +341,119 @@ class CollectionsManager:
         logger.info(f"Marked collection {collection_id} as used")
         return True
     
+    async def create_collection_snapshot(self, collection_id: str, episode_id: str, db: Session) -> Optional[str]:
+        """Create a snapshot of a collection for an episode and create a new collection for future articles."""
+        try:
+            # Get the original collection from database
+            from uuid import UUID
+            db_collection = db.query(DBCollection).filter(DBCollection.id == UUID(collection_id)).first()
+            if not db_collection:
+                logger.error(f"Collection {collection_id} not found in database")
+                return None
+            
+            # Get all articles in this collection
+            articles = db.query(Article).filter(Article.collection_id == UUID(collection_id)).all()
+            
+            if not articles:
+                logger.warning(f"No articles found in collection {collection_id}")
+                return None
+            
+            # Create snapshot collection with episode ID in name
+            snapshot_name = f"Episode {episode_id[:8]} Snapshot"
+            snapshot_collection = DBCollection(
+                name=snapshot_name,
+                description=f"Snapshot of {db_collection.name} for episode {episode_id}",
+                status="snapshot",
+                episode_id=UUID(episode_id),
+                parent_collection_id=UUID(collection_id)
+            )
+            db.add(snapshot_collection)
+            db.flush()  # Get the ID without committing
+            
+            # Assign the same podcast groups to snapshot
+            snapshot_collection.podcast_groups = db_collection.podcast_groups
+            
+            # Move articles from original collection to snapshot
+            article_count = 0
+            for article in articles:
+                article.collection_id = snapshot_collection.id
+                article_count += 1
+            
+            logger.info(f"Moved {article_count} articles to snapshot collection {snapshot_collection.id}")
+            
+            # Create a new collection to continue collecting articles
+            new_collection = DBCollection(
+                name=db_collection.name,  # Keep the same name
+                description=db_collection.description,
+                status="building",
+                parent_collection_id=snapshot_collection.id  # Link to snapshot as parent
+            )
+            db.add(new_collection)
+            db.flush()
+            
+            # Assign the same podcast groups to new collection
+            new_collection.podcast_groups = db_collection.podcast_groups
+            
+            # Delete the old collection as it's now empty and replaced
+            db.delete(db_collection)
+            
+            # Commit all changes
+            db.commit()
+            db.refresh(snapshot_collection)
+            db.refresh(new_collection)
+            
+            # Update in-memory collections
+            # Remove old collection from memory
+            if collection_id in self.collections:
+                del self.collections[collection_id]
+            
+            # Add snapshot to memory
+            snapshot_dto = CollectionDTO(
+                collection_id=str(snapshot_collection.id),
+                name=snapshot_collection.name,
+                description=snapshot_collection.description,
+                group_ids=[str(group.id) for group in snapshot_collection.podcast_groups],
+                status=snapshot_collection.status,
+                items=[],  # Articles are in DB, not loaded to memory for snapshots
+                metadata={
+                    "episode_id": episode_id,
+                    "article_count": article_count,
+                    "snapshot_created_at": datetime.utcnow().isoformat()
+                },
+                created_at=snapshot_collection.created_at or datetime.utcnow(),
+                updated_at=snapshot_collection.updated_at or datetime.utcnow(),
+                expires_at=None  # Snapshots don't expire
+            )
+            self.collections[str(snapshot_collection.id)] = snapshot_dto
+            
+            # Add new building collection to memory
+            new_dto = CollectionDTO(
+                collection_id=str(new_collection.id),
+                name=new_collection.name,
+                description=new_collection.description,
+                group_ids=[str(group.id) for group in new_collection.podcast_groups],
+                status=new_collection.status,
+                items=[],
+                metadata={
+                    "parent_snapshot_id": str(snapshot_collection.id),
+                    "created_from_snapshot": True
+                },
+                created_at=new_collection.created_at or datetime.utcnow(),
+                updated_at=new_collection.updated_at or datetime.utcnow(),
+                expires_at=datetime.utcnow() + timedelta(hours=COLLECTION_TTL_HOURS)
+            )
+            self.collections[str(new_collection.id)] = new_dto
+            
+            logger.info(f"✅ Created snapshot {snapshot_collection.id} with {article_count} articles")
+            logger.info(f"✅ Created new building collection {new_collection.id}")
+            
+            return str(snapshot_collection.id)
+            
+        except Exception as e:
+            logger.error(f"Error creating collection snapshot: {e}")
+            db.rollback()
+            return None
+    
     def cleanup_expired_collections(self):
         """Remove expired collections."""
         now = datetime.utcnow()
@@ -356,7 +469,108 @@ class CollectionsManager:
     
     def get_collections_for_group(self, group_id: str) -> List[CollectionDTO]:
         """Get all collections for a specific group."""
-        return [c for c in self.collections.values() if c.group_id == group_id]
+        return [c for c in self.collections.values() if group_id in c.group_ids]
+    
+    def get_active_collection_for_group(self, group_id: str, db: Session) -> Optional[str]:
+        """Get the active collection for a group - prioritize ready over building, create one if none exists."""
+        # Check in-memory collections first - prioritize ready over building
+        ready_collection = None
+        building_collection = None
+        
+        for collection in self.collections.values():
+            if group_id in collection.group_ids:
+                if collection.status == "ready" and not ready_collection:
+                    ready_collection = collection.collection_id
+                elif collection.status == "building" and not building_collection:
+                    building_collection = collection.collection_id
+        
+        # Return ready first, then building
+        if ready_collection:
+            logger.info(f"Found ready collection {ready_collection} for group {group_id}")
+            return ready_collection
+        if building_collection:
+            return building_collection
+        
+        # Check database for ready or building collections
+        from uuid import UUID
+        group = db.query(PodcastGroup).filter(PodcastGroup.id == UUID(group_id)).first()
+        if not group:
+            logger.error(f"Group {group_id} not found")
+            return None
+        
+        # Find ready collection first, then building collection for this group
+        for collection in group.collections:
+            if collection.status == "ready":
+                self._load_collection_into_memory(collection, db)
+                logger.info(f"Found ready collection {collection.id} in DB for group {group_id}")
+                return str(collection.id)
+        
+        for collection in group.collections:
+            if collection.status == "building":
+                # Load it into memory
+                self._load_collection_into_memory(collection, db)
+                return str(collection.id)
+        
+        # No building collection found, create one
+        logger.info(f"No building collection found for group {group_id}, creating one")
+        new_collection = DBCollection(
+            name=f"{group.name} Collection",
+            description=f"Active collection for {group.name}",
+            status="building"
+        )
+        db.add(new_collection)
+        db.flush()
+        
+        # Assign to group
+        new_collection.podcast_groups.append(group)
+        db.commit()
+        db.refresh(new_collection)
+        
+        # Load into memory
+        self._load_collection_into_memory(new_collection, db)
+        
+        logger.info(f"Created new building collection {new_collection.id} for group {group_id}")
+        return str(new_collection.id)
+    
+    def _load_collection_into_memory(self, db_collection: DBCollection, db: Session):
+        """Load a collection from database into memory."""
+        articles = db.query(Article).filter(Article.collection_id == db_collection.id).all()
+        
+        items = []
+        for article in articles:
+            feed_item = CollectionItem(
+                item_id=str(article.id),
+                item_type="feed",
+                content={
+                    "title": article.title,
+                    "link": article.link,
+                    "summary": article.summary,
+                    "content": article.content,
+                    "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+                    "source": article.news_feed.name if article.news_feed else "Unknown"
+                },
+                created_at=article.created_at,
+                metadata={
+                    "article_id": str(article.id),
+                    "feed_id": str(article.feed_id)
+                }
+            )
+            items.append(feed_item)
+        
+        collection_dto = CollectionDTO(
+            collection_id=str(db_collection.id),
+            name=db_collection.name,
+            description=db_collection.description,
+            group_ids=[str(group.id) for group in db_collection.podcast_groups],
+            status=db_collection.status,
+            items=items,
+            metadata={"loaded_from_db": True},
+            created_at=db_collection.created_at or datetime.utcnow(),
+            updated_at=db_collection.updated_at or datetime.utcnow(),
+            expires_at=datetime.utcnow() + timedelta(hours=COLLECTION_TTL_HOURS) if db_collection.status == "building" else None
+        )
+        
+        self.collections[str(db_collection.id)] = collection_dto
 
 
 # Initialize collections manager
@@ -379,6 +593,54 @@ async def health_check():
         "collections_count": len(collections_manager.collections),
         "timestamp": datetime.utcnow()
     }
+
+
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Get worker count from environment or default to 1
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+        
+        # Count collections by status
+        status_counts = {}
+        for status in ["building", "ready", "used", "expired"]:
+            count = db.query(DBCollection).filter(DBCollection.status == status).count()
+            status_counts[status] = count
+        
+        # Total collections
+        total_collections = len(collections_manager.collections)
+        
+        # Generate Prometheus format
+        metrics = []
+        
+        # Worker metrics
+        metrics.append(f"collections_workers_active {workers_active}")
+        
+        # Collection metrics by status
+        for status, count in status_counts.items():
+            metrics.append(f'collections_total{{status="{status}"}} {count}')
+        
+        # Active collections
+        metrics.append(f"collections_active_total {total_collections}")
+        
+        prometheus_output = "\n".join([
+            "# HELP collections_workers_active Number of active workers",
+            "# TYPE collections_workers_active gauge",
+            "# HELP collections_total Total collections by status",
+            "# TYPE collections_total gauge",
+            "# HELP collections_active_total Total active collections in memory",
+            "# TYPE collections_active_total gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
 
 
 @app.post("/collections", response_model=CollectionResponse)
@@ -412,13 +674,25 @@ async def list_collections(
     collections = list(collections_manager.collections.values())
     
     if group_id:
-        collections = [c for c in collections if c.group_id == group_id]
+        collections = [c for c in collections if group_id in c.group_ids]  # Fixed: group_ids is a list
     
     if status:
         collections = [c for c in collections if c.status == status]
     
-    # Sort by updated_at descending
-    collections.sort(key=lambda x: x.updated_at, reverse=True)
+    # Sort by updated_at descending - handle timezone-aware and naive datetimes
+    def safe_sort_key(x):
+        try:
+            dt = x.updated_at
+            # If timezone-naive, treat as UTC
+            if dt and dt.tzinfo is None:
+                from datetime import timezone
+                return dt.replace(tzinfo=timezone.utc)
+            return dt if dt else datetime.min.replace(tzinfo=timezone.utc)
+        except:
+            from datetime import timezone
+            return datetime.min.replace(tzinfo=timezone.utc)
+    
+    collections.sort(key=safe_sort_key, reverse=True)
     
     return collections[:limit]
 
@@ -528,6 +802,41 @@ async def get_collections_stats():
         "min_feeds_required": MIN_FEEDS_PER_COLLECTION,
         "collection_ttl_hours": COLLECTION_TTL_HOURS
     }
+
+
+@app.post("/collections/{collection_id}/snapshot")
+async def create_collection_snapshot(
+    collection_id: str,
+    episode_id: str,
+    db: Session = Depends(get_db)
+):
+    """Create a snapshot of a collection for an episode and create a new collection for future articles."""
+    snapshot_id = await collections_manager.create_collection_snapshot(collection_id, episode_id, db)
+    
+    if not snapshot_id:
+        raise HTTPException(status_code=400, detail="Failed to create collection snapshot")
+    
+    return {
+        "message": f"Collection snapshot created successfully",
+        "snapshot_id": snapshot_id,
+        "original_collection_id": collection_id,
+        "episode_id": episode_id
+    }
+
+
+@app.get("/collections/group/{group_id}/active")
+async def get_active_collection_for_group(
+    group_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get or create the active building collection for a group."""
+    collection_id = collections_manager.get_active_collection_for_group(group_id, db)
+    
+    if not collection_id:
+        raise HTTPException(status_code=404, detail="Failed to get or create active collection")
+    
+    collection = collections_manager.get_collection(collection_id)
+    return collection
 
 
 if __name__ == "__main__":

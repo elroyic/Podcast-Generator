@@ -219,13 +219,17 @@ class Collection(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text)
-    status = Column(String(20), default='processing')
+    status = Column(String(20), default='processing')  # 'building', 'ready', 'snapshot', 'used', 'expired'
+    episode_id = Column(PGUUID(as_uuid=True), ForeignKey('episodes.id'), nullable=True)  # Links snapshot to episode
+    parent_collection_id = Column(PGUUID(as_uuid=True), ForeignKey('collections.id'), nullable=True)  # For tracking lineage
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
     podcast_groups = relationship("PodcastGroup", secondary=collection_group_assignment, back_populates="collections")
     articles = relationship("Article", back_populates="collection")
+    episode = relationship("Episode", foreign_keys=[episode_id])
+    child_collections = relationship("Collection", backref="parent_collection", remote_side=[id], foreign_keys=[parent_collection_id])
 
 
 class AudioFile(Base):
@@ -257,3 +261,17 @@ class PublishRecord(Base):
 
     # Relationships
     episode = relationship("Episode")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    username = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(String(50), default="user")  # admin, user, editor
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_login = Column(DateTime(timezone=True))

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 
 from shared.database import get_db, create_tables
-from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection
+from shared.models import PodcastGroup, Episode, Presenter, Writer, NewsFeed, Article, Collection, User, EpisodeMetadata, EpisodeStatus
 from shared.schemas import (
     PodcastGroup as PodcastGroupSchema,
     PodcastGroupCreate,
@@ -33,9 +33,14 @@ from shared.schemas import (
     NewsFeedCreate,
     GenerationRequest,
     GenerationResponse,
-    HealthCheck
+    HealthCheck,
+    User as UserSchema,
+    UserCreate,
+    UserUpdate,
+    UserPasswordUpdate
 )
 from fastapi import Body
+from passlib.context import CryptContext
 
 import os
 import subprocess
@@ -43,6 +48,9 @@ import subprocess
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Password hashing - use bcrypt directly to avoid passlib compatibility issues
+import bcrypt as bcrypt_lib
 
 app = FastAPI(title="Podcast AI API Gateway", version="1.0.0")
 
@@ -145,28 +153,44 @@ async def call_service(service_name: str, method: str, endpoint: str, **kwargs) 
         raise HTTPException(status_code=500, detail=f"Service communication error: {str(e)}")
 
 
+# Helper functions for password hashing
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hash."""
+    try:
+        return bcrypt_lib.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception as e:
+        logger.error(f"Password verification error: {e}")
+        return False
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password."""
+    salt = bcrypt_lib.gensalt()
+    return bcrypt_lib.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+
 # Authentication Endpoints
 @app.post("/api/auth/login")
-async def login(credentials: Dict[str, str] = Body(...), request: Request = None):
-    """Simple login endpoint - in production, validate against a user database."""
+async def login(credentials: Dict[str, str] = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Login endpoint with database user support and environment variable fallback."""
     username = credentials.get("username")
     password = credentials.get("password")
     
-    # Simple hardcoded admin credentials (in production, use proper user management)
-    # Read admin credentials from environment
-    admin_username = os.getenv("ADMIN_USERNAME", "admin")
-    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-    if username == admin_username and password == admin_password:
+    # Try database user first
+    user = db.query(User).filter(User.username == username).first()
+    
+    if user and user.is_active and verify_password(password, user.hashed_password):
+        # Update last login
+        user.last_login = datetime.utcnow()
+        db.commit()
+        
         token = create_jwt_token(username)
-        # Set cookie via response in frontend fetch handler
-        from fastapi.responses import JSONResponse
         resp = JSONResponse({
             "access_token": token,
             "token_type": "bearer",
             "username": username,
-            "role": "elroyic"
+            "role": user.role
         })
-        # Cookie for HTML session auth
         resp.set_cookie(
             key="access_token",
             value=token,
@@ -176,8 +200,30 @@ async def login(credentials: Dict[str, str] = Body(...), request: Request = None
             secure=False
         )
         return resp
-    else:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Fallback to environment variables (for backward compatibility)
+    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    
+    if username == admin_username and password == admin_password:
+        token = create_jwt_token(username)
+        resp = JSONResponse({
+            "access_token": token,
+            "token_type": "bearer",
+            "username": username,
+            "role": "admin"
+        })
+        resp.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            max_age=JWT_EXPIRE_HOURS * 3600,
+            samesite="lax",
+            secure=False
+        )
+        return resp
+    
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 # Admin Interface
 def require_html_auth(request: Request) -> Optional[RedirectResponse]:
     token = request.cookies.get("access_token")
@@ -201,6 +247,142 @@ async def verify_token(current_user: Dict[str, Any] = Depends(get_current_user))
         "role": current_user.get("role"),
         "expires": current_user.get("exp")
     }
+
+
+# User Management Endpoints
+@app.get("/api/users", response_model=List[UserSchema])
+async def list_users(
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """List all users (admin only)."""
+    users = db.query(User).all()
+    return users
+
+
+@app.post("/api/users", response_model=UserSchema)
+async def create_user(
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Create a new user (admin only)."""
+    # Check if username already exists
+    existing_user = db.query(User).filter(User.username == user_data.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    # Check if email already exists
+    existing_email = db.query(User).filter(User.email == user_data.email).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already exists")
+    
+    # Create new user
+    user = User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=get_password_hash(user_data.password),
+        role=user_data.role,
+        is_active=True
+    )
+    
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    logger.info(f"User created: {user.username} (role: {user.role})")
+    return user
+
+
+@app.get("/api/users/{user_id}", response_model=UserSchema)
+async def get_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Get a specific user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.put("/api/users/{user_id}", response_model=UserSchema)
+async def update_user(
+    user_id: UUID,
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Update a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update fields
+    update_data = user_data.dict(exclude_unset=True)
+    
+    # Check if email is being changed and is unique
+    if "email" in update_data and update_data["email"] != user.email:
+        existing_email = db.query(User).filter(User.email == update_data["email"]).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already exists")
+    
+    for field, value in update_data.items():
+        setattr(user, field, value)
+    
+    db.commit()
+    db.refresh(user)
+    
+    logger.info(f"User updated: {user.username}")
+    return user
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(admin_required)
+):
+    """Delete a user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent deleting yourself
+    if user.username == current_user.get("sub"):
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    db.delete(user)
+    db.commit()
+    
+    logger.info(f"User deleted: {user.username}")
+    return {"message": "User deleted successfully"}
+
+
+@app.put("/api/users/me/password")
+async def change_own_password(
+    password_data: UserPasswordUpdate,
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Change own password (authenticated users)."""
+    username = current_user.get("sub")
+    user = db.query(User).filter(User.username == username).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    if not verify_password(password_data.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Update password
+    user.hashed_password = get_password_hash(password_data.new_password)
+    db.commit()
+    
+    logger.info(f"Password changed for user: {user.username}")
+    return {"message": "Password changed successfully"}
 
 
 # Health Check
@@ -233,6 +415,66 @@ async def health_check():
         timestamp=datetime.utcnow(),
         services=services_status
     )
+
+
+@app.get("/metrics")
+async def get_prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Count episodes by status
+        episode_counts = {}
+        for status in ["pending", "generating", "completed", "failed"]:
+            count = db.query(Episode).filter(Episode.status == status).count()
+            episode_counts[status] = count
+        
+        # Count total entities
+        total_groups = db.query(PodcastGroup).count()
+        total_presenters = db.query(Presenter).count()
+        total_writers = db.query(Writer).count()
+        total_feeds = db.query(NewsFeed).filter(NewsFeed.is_active == True).count()
+        total_articles = db.query(Article).count()
+        total_collections = db.query(Collection).count()
+        
+        # Generate Prometheus format
+        metrics = []
+        
+        # Episode metrics
+        for status, count in episode_counts.items():
+            metrics.append(f'api_gateway_episodes_total{{status="{status}"}} {count}')
+        
+        # Entity counts
+        metrics.append(f"api_gateway_podcast_groups_total {total_groups}")
+        metrics.append(f"api_gateway_presenters_total {total_presenters}")
+        metrics.append(f"api_gateway_writers_total {total_writers}")
+        metrics.append(f"api_gateway_active_feeds_total {total_feeds}")
+        metrics.append(f"api_gateway_articles_total {total_articles}")
+        metrics.append(f"api_gateway_collections_total {total_collections}")
+        
+        prometheus_output = "\n".join([
+            "# HELP api_gateway_episodes_total Total episodes by status",
+            "# TYPE api_gateway_episodes_total gauge",
+            "# HELP api_gateway_podcast_groups_total Total podcast groups",
+            "# TYPE api_gateway_podcast_groups_total gauge",
+            "# HELP api_gateway_presenters_total Total presenters",
+            "# TYPE api_gateway_presenters_total gauge",
+            "# HELP api_gateway_writers_total Total writers",
+            "# TYPE api_gateway_writers_total gauge",
+            "# HELP api_gateway_active_feeds_total Total active news feeds",
+            "# TYPE api_gateway_active_feeds_total gauge",
+            "# HELP api_gateway_articles_total Total articles",
+            "# TYPE api_gateway_articles_total gauge",
+            "# HELP api_gateway_collections_total Total collections",
+            "# TYPE api_gateway_collections_total gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
 
 
 # Admin Interface
@@ -374,6 +616,15 @@ async def writers_page(request: Request):
     redirect = require_html_auth(request)
     if redirect: return redirect
     return templates.TemplateResponse("writers.html", {"request": request})
+
+
+# Admin Panel Page
+@app.get("/admin-panel", response_class=HTMLResponse)
+async def admin_panel_page(request: Request):
+    """Render the Admin Panel UI."""
+    redirect = require_html_auth(request)
+    if redirect: return redirect
+    return templates.TemplateResponse("admin-panel.html", {"request": request})
 
 
 # Management endpoints
@@ -871,6 +1122,115 @@ async def delete_writer(writer_id: str, db: Session = Depends(get_db)):
     return {"message": "Writer deleted successfully"}
 
 
+@app.get("/api/writers/{writer_id}/stats")
+async def get_writer_stats(writer_id: str, db: Session = Depends(get_db)):
+    """Get statistics for a specific writer."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    # Get groups assigned to this writer
+    groups = db.query(PodcastGroup).filter(PodcastGroup.writer_id == writer_id).all()
+    
+    # Get episodes from those groups
+    group_ids = [g.id for g in groups]
+    episodes = db.query(Episode).filter(Episode.group_id.in_(group_ids)).all() if group_ids else []
+    
+    # Get the most recent episode
+    recent_episode = db.query(Episode).filter(
+        Episode.group_id.in_(group_ids)
+    ).order_by(Episode.created_at.desc()).first() if group_ids else None
+    
+    # Calculate stats
+    stats = {
+        "writer_id": str(writer.id),
+        "writer_name": writer.name,
+        "groups_assigned": len(groups),
+        "group_names": [{"id": str(g.id), "name": g.name, "status": g.status.value} for g in groups],
+        "total_scripts": len(episodes),
+        "last_script_date": recent_episode.created_at.isoformat() if recent_episode else None,
+        "scripts_by_status": {
+            "draft": sum(1 for e in episodes if e.status == EpisodeStatus.DRAFT),
+            "voiced": sum(1 for e in episodes if e.status == EpisodeStatus.VOICED),
+            "published": sum(1 for e in episodes if e.status == EpisodeStatus.PUBLISHED),
+        },
+        "recent_activity": []
+    }
+    
+    # Get recent episodes (last 10)
+    recent_episodes = db.query(Episode).filter(
+        Episode.group_id.in_(group_ids)
+    ).order_by(Episode.created_at.desc()).limit(10).all() if group_ids else []
+    
+    for episode in recent_episodes:
+        group = next((g for g in groups if g.id == episode.group_id), None)
+        stats["recent_activity"].append({
+            "episode_id": str(episode.id),
+            "group_name": group.name if group else "Unknown",
+            "status": episode.status.value,
+            "created_at": episode.created_at.isoformat() if episode.created_at else None
+        })
+    
+    return stats
+
+
+@app.get("/api/writers/{writer_id}/scripts")
+async def get_writer_scripts(
+    writer_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """Get scripts created by a specific writer (via their assigned groups)."""
+    writer = db.query(Writer).filter(Writer.id == writer_id).first()
+    if not writer:
+        raise HTTPException(status_code=404, detail="Writer not found")
+    
+    # Get groups assigned to this writer
+    groups = db.query(PodcastGroup).filter(PodcastGroup.writer_id == writer_id).all()
+    group_ids = [g.id for g in groups]
+    
+    if not group_ids:
+        return {"total": 0, "scripts": []}
+    
+    # Get total count
+    total = db.query(Episode).filter(Episode.group_id.in_(group_ids)).count()
+    
+    # Get episodes with pagination
+    episodes = db.query(Episode).filter(
+        Episode.group_id.in_(group_ids)
+    ).order_by(Episode.created_at.desc()).limit(limit).offset(offset).all()
+    
+    # Build response
+    scripts = []
+    for episode in episodes:
+        group = next((g for g in groups if g.id == episode.group_id), None)
+        
+        # Get metadata if available
+        metadata = db.query(EpisodeMetadata).filter(
+            EpisodeMetadata.episode_id == episode.id
+        ).first()
+        
+        scripts.append({
+            "episode_id": str(episode.id),
+            "group_id": str(episode.group_id),
+            "group_name": group.name if group else "Unknown",
+            "title": metadata.title if metadata else None,
+            "script": episode.script,
+            "status": episode.status.value,
+            "created_at": episode.created_at.isoformat() if episode.created_at else None,
+            "category": metadata.category if metadata else None,
+            "tags": metadata.tags if metadata else []
+        })
+    
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "scripts": scripts
+    }
+
+
 # News Feeds API
 @app.get("/api/news-feeds", response_model=List[NewsFeedSchema])
 async def list_news_feeds(db: Session = Depends(get_db)):
@@ -1151,7 +1511,7 @@ async def get_news_feed_stats(db: Session = Depends(get_db)):
 
 @app.get("/api/news-feed/recent-articles")
 async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
-    """Get recent articles from all feeds."""
+    """Get recent articles from all feeds (legacy endpoint, use /api/news-feed/articles for full features)."""
     from shared.models import Article, NewsFeed
     
     articles = db.query(Article).join(NewsFeed).order_by(
@@ -1173,6 +1533,161 @@ async def get_recent_articles(limit: int = 10, db: Session = Depends(get_db)):
         })
     
     return result
+
+
+@app.get("/api/news-feed/articles")
+async def list_all_articles(
+    limit: int = 50,
+    offset: int = 0,
+    feed_id: Optional[str] = None,
+    reviewer_type: Optional[str] = None,
+    has_collection: Optional[bool] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get paginated list of articles with filtering options."""
+    from shared.models import Article, NewsFeed, Collection
+    from datetime import datetime
+    
+    # Build query
+    query = db.query(Article).join(NewsFeed, Article.feed_id == NewsFeed.id)
+    
+    # Apply filters
+    if feed_id:
+        try:
+            query = query.filter(Article.feed_id == UUID(feed_id))
+        except ValueError:
+            pass
+    
+    if reviewer_type:
+        if reviewer_type == "unreviewed":
+            query = query.filter(Article.reviewer_type.is_(None))
+        else:
+            query = query.filter(Article.reviewer_type == reviewer_type)
+    
+    if has_collection is not None:
+        if has_collection:
+            query = query.filter(Article.collection_id.isnot(None))
+        else:
+            query = query.filter(Article.collection_id.is_(None))
+    
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            Article.title.ilike(search_term) | 
+            Article.summary.ilike(search_term) |
+            Article.content.ilike(search_term)
+        )
+    
+    if date_from:
+        try:
+            from_date = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+            query = query.filter(Article.created_at >= from_date)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            to_date = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+            query = query.filter(Article.created_at <= to_date)
+        except ValueError:
+            pass
+    
+    # Get total count before pagination
+    total_count = query.count()
+    
+    # Apply ordering and pagination
+    articles = query.order_by(Article.created_at.desc()).offset(offset).limit(limit).all()
+    
+    # Build result
+    result = []
+    for article in articles:
+        feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+        collection_name = None
+        if article.collection_id:
+            collection = db.query(Collection).filter(Collection.id == article.collection_id).first()
+            if collection:
+                collection_name = collection.name
+        
+        result.append({
+            "id": str(article.id),
+            "title": article.title,
+            "link": article.link,
+            "summary": article.summary,
+            "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+            "created_at": article.created_at.isoformat() if article.created_at else None,
+            "feed_id": str(article.feed_id),
+            "feed_name": feed.name if feed else "Unknown Feed",
+            "reviewer_type": article.reviewer_type,
+            "review_tags": article.review_tags or [],
+            "confidence": article.confidence,
+            "collection_id": str(article.collection_id) if article.collection_id else None,
+            "collection_name": collection_name
+        })
+    
+    return {
+        "total": total_count,
+        "offset": offset,
+        "limit": limit,
+        "articles": result
+    }
+
+
+@app.get("/api/news-feed/articles/{article_id}")
+async def get_article_details(article_id: UUID, db: Session = Depends(get_db)):
+    """Get detailed information about a specific article."""
+    from shared.models import Article, NewsFeed, Collection, Episode
+    
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    
+    # Get feed information
+    feed = db.query(NewsFeed).filter(NewsFeed.id == article.feed_id).first()
+    
+    # Get collection information
+    collection = None
+    collection_name = None
+    if article.collection_id:
+        collection = db.query(Collection).filter(Collection.id == article.collection_id).first()
+        if collection:
+            collection_name = collection.name
+    
+    # Get linked episodes
+    linked_episodes = []
+    if article.episodes:
+        for episode in article.episodes:
+            group = db.query(PodcastGroup).filter(PodcastGroup.id == episode.group_id).first()
+            linked_episodes.append({
+                "id": str(episode.id),
+                "status": episode.status.value if episode.status else "unknown",
+                "created_at": episode.created_at.isoformat() if episode.created_at else None,
+                "group_name": group.name if group else "Unknown Group"
+            })
+    
+    return {
+        "id": str(article.id),
+        "title": article.title,
+        "link": article.link,
+        "summary": article.summary,
+        "content": article.content,
+        "publish_date": article.publish_date.isoformat() if article.publish_date else None,
+        "created_at": article.created_at.isoformat() if article.created_at else None,
+        "feed_id": str(article.feed_id),
+        "feed_name": feed.name if feed else "Unknown Feed",
+        "feed_url": feed.source_url if feed else None,
+        "collection_id": str(article.collection_id) if article.collection_id else None,
+        "collection_name": collection_name,
+        "reviewer_type": article.reviewer_type,
+        "review_tags": article.review_tags or [],
+        "review_summary": article.review_summary,
+        "confidence": article.confidence,
+        "processed_at": article.processed_at.isoformat() if article.processed_at else None,
+        "review_metadata": article.review_metadata,
+        "linked_episodes": linked_episodes
+    }
 
 
 @app.get("/api/news-feed/performance")

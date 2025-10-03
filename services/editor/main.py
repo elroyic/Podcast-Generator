@@ -4,6 +4,7 @@ Reviews for length, accuracy, engagement and entertainment value as specified in
 """
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from uuid import UUID
@@ -19,6 +20,61 @@ from shared.models import Article, NewsFeed
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def clean_script_for_audio(script: str) -> str:
+    """
+    Remove all problematic tags and formatting from script for audio generation.
+    This is more reliable than trying to force LLMs not to generate them.
+    """
+    cleaned = script
+    
+    # Remove <think> tags and their content
+    cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove any remaining standalone think tags
+    cleaned = re.sub(r'</?think>', '', cleaned, flags=re.IGNORECASE)
+    
+    # Remove === EDITED SCRIPT === markers
+    cleaned = re.sub(r'===\s*EDITED SCRIPT\s*===', '', cleaned, flags=re.IGNORECASE)
+    
+    # Remove === REVIEW === and everything after it
+    cleaned = re.sub(r'===\s*REVIEW\s*===.*$', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove === REVIEW NOTES === and everything after it
+    cleaned = re.sub(r'===\s*REVIEW NOTES\s*===.*$', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove markdown bold from Speaker labels: **Speaker X:** → Speaker X:
+    cleaned = re.sub(r'\*\*Speaker\s+(\d+):\*\*', r'Speaker \1:', cleaned)
+    
+    # Remove any remaining markdown formatting
+    cleaned = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned)  # Bold
+    cleaned = re.sub(r'\*([^*]+)\*', r'\1', cleaned)      # Italic
+    
+    # Remove common LLM artifacts
+    cleaned = re.sub(r'Final Answer.*$', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r'\\boxed\{.*?\}', '', cleaned)
+    cleaned = re.sub(r'\$\$.*?\$\$', '', cleaned, flags=re.DOTALL)
+    
+    # Keep only lines that start with "Speaker X:" (the actual dialogue)
+    # Everything else is LLM meta-commentary
+    lines = cleaned.split('\n')
+    speaker_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('Speaker '):
+            speaker_lines.append(line)
+        # Allow blank lines between speakers
+        elif not stripped and speaker_lines:
+            speaker_lines.append(line)
+    
+    cleaned = '\n'.join(speaker_lines)
+    
+    # Clean up excessive whitespace
+    cleaned = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned)
+    cleaned = cleaned.strip()
+    
+    return cleaned
 
 app = FastAPI(title="Editor Service", version="1.0.0")
 
@@ -105,11 +161,19 @@ class ScriptEditor:
     
     def __init__(self):
         self.ollama_client = OllamaClient()
+        self.latency_history = []  # Track latency for metrics
     
     def create_system_prompt(self) -> str:
         """Create system prompt for script editing."""
         return """
 You are an expert podcast script editor with extensive experience in content creation, journalism, and audio storytelling.
+
+⚠️ CRITICAL OUTPUT FORMAT RULE:
+- ONLY output the edited script and review - nothing else!
+- Do NOT include any <think> tags, reasoning, or meta-commentary
+- Do NOT explain your editing process or thought process
+- ONLY provide the edited script in the format: "=== EDITED SCRIPT ===" followed by the script, then "=== REVIEW NOTES ===" followed by your review
+- Start directly with "=== EDITED SCRIPT ===" and continue from there
 
 EDITING RESPONSIBILITIES:
 1. LENGTH: Ensure the script meets the target duration (typically 10 minutes = ~1500 words)
@@ -126,7 +190,17 @@ EDITING PRINCIPLES:
 - Maintain consistent tone throughout while having moments of humour and excitement
 - Add engaging hooks and conclusions
 - Ensure proper pacing for audio consumption
-- No URL's are you be included in the final script
+- No URL's are to be included in the final script
+
+**CRITICAL - MULTI-SPEAKER FORMAT PRESERVATION:**
+- The script is formatted as multi-speaker dialogue (2-4 speakers)
+- EVERY LINE must start with "Speaker 1:", "Speaker 2:", "Speaker 3:", or "Speaker 4:"
+- DO NOT change speaker labels to names, "Host:", "Guest:", or any other format
+- DO NOT use markdown formatting: Write "Speaker 1:" NOT "**Speaker 1:**" or "*Speaker 1:*"
+- Use PLAIN TEXT only - no asterisks, no bold, no italics around Speaker labels
+- PRESERVE the multi-speaker conversation structure
+- Ensure natural dialogue flow between speakers
+- Each speaker should have a consistent voice/perspective throughout
 
 REVIEW CRITERIA:
 - Length: Is it appropriate for the target duration?
@@ -188,7 +262,15 @@ EDITING REQUIREMENTS:
 7. Add compelling introduction and conclusion
 8. Balance information with entertainment
 
-Please provide the edited script and detailed review as specified in the system prompt.
+**CRITICAL FORMAT REQUIREMENT:**
+This is a MULTI-SPEAKER DIALOGUE script. You MUST preserve the format where every line starts with "Speaker 1:", "Speaker 2:", etc.
+- Do NOT remove or change the speaker labels
+- Do NOT use names like "Host:", "Guest:", or anything else
+- Do NOT use markdown: NO **Speaker 1:** or *Speaker 1:* - use plain "Speaker 1:" only!
+- Use PLAIN TEXT only - no asterisks or formatting around Speaker labels
+- Maintain the conversational back-and-forth between speakers
+
+Please provide the edited script and detailed review as specified in the system prompt (plain text, no markdown).
 """
 
     def parse_edit_response(self, response: str, original_script: str, script_id: str) -> ScriptReview:
@@ -203,6 +285,10 @@ Please provide the edited script and detailed review as specified in the system 
                 # Fallback: assume the entire response is the edited script
                 edited_script = response
                 review_notes = "Review notes not provided in expected format."
+            
+            # Clean the script for audio generation (remove all problematic tags)
+            edited_script = clean_script_for_audio(edited_script)
+            logger.info(f"Cleaned script: {len(edited_script)} chars, {len(edited_script.split())} words")
             
             # Parse review assessments
             assessments = self._parse_review_assessments(review_notes)
@@ -342,29 +428,53 @@ Please provide the edited script and detailed review as specified in the system 
         return review
     
     def _generate_fallback_edit(self, script: str, target_length_minutes: int) -> str:
-        """Generate a fallback edit when Ollama fails."""
+        """Generate a fallback edit when Ollama fails - preserves multi-speaker format."""
         target_word_count = target_length_minutes * 150
         current_word_count = len(script.split())
         
+        # Check if script has multi-speaker format
+        has_speakers = "Speaker 1:" in script or "Speaker 2:" in script
+        
         if current_word_count <= target_word_count:
-            # Script is already appropriate length, just add basic improvements
-            edited_script = f"""Welcome to today's podcast episode. {script}
-
-Thank you for listening to today's episode. We hope you found this information valuable and engaging."""
+            # Script is already appropriate length - return as is if it has speaker format
+            if has_speakers:
+                edited_script = script
+            else:
+                # Add basic multi-speaker wrapper if missing
+                edited_script = f"""Speaker 1: Welcome to today's podcast episode.
+Speaker 2: Thanks for having me! Let's get started.
+Speaker 1: {script}
+Speaker 2: Thank you for listening to today's episode.
+Speaker 1: We hope you found this information valuable and engaging."""
         else:
-            # Script is too long, truncate and add conclusion
-            words = script.split()
-            edited_script = " ".join(words[:target_word_count - 50])
-            edited_script += "\n\nThank you for listening to today's episode. We hope you found this information valuable and engaging."
+            # Script is too long, truncate intelligently
+            if has_speakers:
+                # Preserve speaker lines, truncate by lines to keep format intact
+                lines = script.split('\n')
+                current_len = 0
+                kept_lines = []
+                for line in lines:
+                    if current_len + len(line.split()) < target_word_count - 50:
+                        kept_lines.append(line)
+                        current_len += len(line.split())
+                    else:
+                        break
+                edited_script = '\n'.join(kept_lines)
+                edited_script += "\nSpeaker 1: Thank you for listening to today's episode.\nSpeaker 2: We hope you found this valuable and engaging."
+            else:
+                # Truncate and wrap
+                words = script.split()
+                truncated = " ".join(words[:target_word_count - 50])
+                edited_script = f"Speaker 1: {truncated}\nSpeaker 2: Thank you for listening!"
         
         return f"""=== EDITED SCRIPT ===
 {edited_script}
 
 === REVIEW NOTES ===
-Length Assessment: Script adjusted to meet {target_length_minutes}-minute target duration.
+Length Assessment: Script adjusted to meet {target_length_minutes}-minute target duration. Multi-speaker format preserved.
 Accuracy Assessment: Original content preserved with minimal changes to maintain accuracy.
-Engagement Assessment: Added introduction and conclusion to improve listener engagement.
-Entertainment Assessment: Maintained original pacing while ensuring appropriate length.
+Engagement Assessment: Multi-speaker dialogue format maintained for better listener engagement.
+Entertainment Assessment: Maintained original pacing and speaker structure while ensuring appropriate length.
 Overall Score: 7"""
 
 
@@ -382,6 +492,52 @@ async def startup_event():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "editor", "timestamp": datetime.utcnow()}
+
+
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Get worker count from environment or default to 1
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+        
+        # Get average latency
+        avg_latency = 0.0
+        if script_editor.latency_history:
+            avg_latency = sum(script_editor.latency_history) / len(script_editor.latency_history)
+        
+        # Total edits processed
+        total_edits = len(script_editor.latency_history)
+        
+        # Scripts per hour (simplified - using total edits as proxy)
+        scripts_per_hour = total_edits  # Could be enhanced with timestamped tracking
+        
+        # Generate Prometheus format
+        metrics = []
+        metrics.append(f"editor_workers_active {workers_active}")
+        metrics.append(f"editor_latency_seconds {avg_latency / 1000.0}")
+        metrics.append(f"editor_edits_total {total_edits}")
+        metrics.append(f"editor_scripts_per_hour {scripts_per_hour}")
+        
+        prometheus_output = "\n".join([
+            "# HELP editor_workers_active Number of active workers",
+            "# TYPE editor_workers_active gauge",
+            "# HELP editor_latency_seconds Average latency for script editing",
+            "# TYPE editor_latency_seconds gauge",
+            "# HELP editor_edits_total Total script edits processed",
+            "# TYPE editor_edits_total counter",
+            "# HELP editor_scripts_per_hour Scripts edited per hour (Scripts/Day metric)",
+            "# TYPE editor_scripts_per_hour gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
 
 
 @app.post("/edit-script", response_model=EditResponse)
@@ -403,6 +559,12 @@ async def edit_script(
         )
         
         processing_time = (datetime.utcnow() - start_time).total_seconds()
+        
+        # Track latency for metrics
+        script_editor.latency_history.append(processing_time * 1000)  # milliseconds
+        # Keep only last 1000 entries
+        if len(script_editor.latency_history) > 1000:
+            script_editor.latency_history = script_editor.latency_history[-1000:]
         
         logger.info(f"Successfully edited script {request.script_id}")
         

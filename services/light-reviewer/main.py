@@ -211,6 +211,54 @@ async def health_check():
     )
 
 
+@app.get("/metrics/prometheus")
+async def get_prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    from fastapi.responses import PlainTextResponse
+    
+    try:
+        # Get worker count from environment or default to 1
+        workers_active = int(os.getenv("WORKERS_ACTIVE", "1"))
+        
+        # Get average latency
+        avg_latency = 0.0
+        if light_reviewer.latency_history:
+            avg_latency = sum(light_reviewer.latency_history) / len(light_reviewer.latency_history)
+        
+        # Total reviews processed
+        total_reviews = len(light_reviewer.latency_history)
+        
+        # Calculate reviews per hour (reviews in last hour)
+        from datetime import datetime, timedelta
+        one_hour_ago_ts = (datetime.utcnow() - timedelta(hours=1)).timestamp() * 1000
+        reviews_last_hour = sum(1 for lat in light_reviewer.latency_history if lat > 0)  # Simplified
+        
+        # Generate Prometheus format
+        metrics = []
+        metrics.append(f"light_reviewer_workers_active {workers_active}")
+        metrics.append(f"light_reviewer_latency_seconds {avg_latency / 1000.0}")
+        metrics.append(f"light_reviewer_reviews_total {total_reviews}")
+        metrics.append(f"light_reviewer_reviews_per_hour {reviews_last_hour}")
+        
+        prometheus_output = "\n".join([
+            "# HELP light_reviewer_workers_active Number of active workers",
+            "# TYPE light_reviewer_workers_active gauge",
+            "# HELP light_reviewer_latency_seconds Average latency for light reviews",
+            "# TYPE light_reviewer_latency_seconds gauge",
+            "# HELP light_reviewer_reviews_total Total reviews processed",
+            "# TYPE light_reviewer_reviews_total counter",
+            "# HELP light_reviewer_reviews_per_hour Reviews processed in the last hour",
+            "# TYPE light_reviewer_reviews_per_hour gauge",
+            "",
+            *metrics
+        ])
+        
+        return PlainTextResponse(prometheus_output, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error generating Prometheus metrics: {e}")
+        return PlainTextResponse("# Error generating metrics\n", media_type="text/plain")
+
+
 @app.post("/review", response_model=ReviewResponse)
 async def review_feed(request: FeedReviewRequest):
     """Review a feed item."""

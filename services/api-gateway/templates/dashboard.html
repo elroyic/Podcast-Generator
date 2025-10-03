@@ -6,6 +6,18 @@
     <title>Podcast AI - Admin Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        @media (max-width: 768px) {
+            .mobile-nav-menu {
+                max-height: 0;
+                overflow: hidden;
+                transition: max-height 0.3s ease-out;
+            }
+            .mobile-nav-menu.active {
+                max-height: 500px;
+            }
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <div class="min-h-screen">
@@ -14,17 +26,39 @@
             <div class="max-w-7xl mx-auto px-4">
                 <div class="flex justify-between h-16">
                     <div class="flex items-center">
-                        <h1 class="text-xl font-bold text-gray-800">Podcast AI</h1>
+                        <h1 class="text-lg sm:text-xl font-bold text-gray-800">Podcast AI</h1>
                     </div>
-                    <div class="flex items-center space-x-4">
-                        <a href="/" class="text-gray-900 font-semibold">Dashboard</a>
-                        <a href="/groups" class="text-gray-600 hover:text-gray-900">Groups</a>
-                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900">Reviewer</a>
-                        <a href="/presenters" class="text-gray-600 hover:text-gray-900">Presenters</a>
-                        <a href="/episodes" class="text-gray-600 hover:text-gray-900">Episodes</a>
-                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900">News Feed</a>
-                        <a href="/collections" class="text-gray-600 hover:text-gray-900">Collections</a>
-                        <a href="/writers" class="text-gray-600 hover:text-gray-900">Writers</a>
+                    <!-- Desktop Navigation -->
+                    <div class="hidden lg:flex items-center space-x-4">
+                        <a href="/" class="text-gray-900 font-semibold text-sm">Dashboard</a>
+                        <a href="/groups" class="text-gray-600 hover:text-gray-900 text-sm">Groups</a>
+                        <a href="/reviewer" class="text-gray-600 hover:text-gray-900 text-sm">Reviewer</a>
+                        <a href="/presenters" class="text-gray-600 hover:text-gray-900 text-sm">Presenters</a>
+                        <a href="/episodes" class="text-gray-600 hover:text-gray-900 text-sm">Episodes</a>
+                        <a href="/news-feed" class="text-gray-600 hover:text-gray-900 text-sm">News Feed</a>
+                        <a href="/collections" class="text-gray-600 hover:text-gray-900 text-sm">Collections</a>
+                        <a href="/writers" class="text-gray-600 hover:text-gray-900 text-sm">Writers</a>
+                        <a href="/admin-panel" class="text-gray-600 hover:text-gray-900 text-sm">Admin</a>
+                    </div>
+                    <!-- Mobile menu button -->
+                    <div class="lg:hidden flex items-center">
+                        <button id="mobile-menu-btn" class="text-gray-600 hover:text-gray-900 focus:outline-none">
+                            <i class="bi bi-list text-2xl"></i>
+                        </button>
+                    </div>
+                </div>
+                <!-- Mobile Navigation Menu -->
+                <div id="mobile-menu" class="mobile-nav-menu lg:hidden">
+                    <div class="py-2 space-y-1">
+                        <a href="/" class="block px-4 py-2 text-gray-900 font-semibold bg-gray-100">Dashboard</a>
+                        <a href="/groups" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Groups</a>
+                        <a href="/reviewer" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Reviewer</a>
+                        <a href="/presenters" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Presenters</a>
+                        <a href="/episodes" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Episodes</a>
+                        <a href="/news-feed" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">News Feed</a>
+                        <a href="/collections" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Collections</a>
+                        <a href="/writers" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Writers</a>
+                        <a href="/admin-panel" class="block px-4 py-2 text-gray-600 hover:bg-gray-50">Admin</a>
                     </div>
                 </div>
             </div>
@@ -102,13 +136,13 @@
             <!-- Recent Episodes -->
             <div class="bg-white shadow overflow-hidden sm:rounded-md">
                 <div class="px-4 py-5 sm:px-6">
-                    <h3 class="text-lg leading-6 font-medium text-gray-900">Recent Episodes</h3>
-                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Latest generated podcast episodes</p>
+                    <h3 class="text-base sm:text-lg leading-6 font-medium text-gray-900">Recent Episodes</h3>
+                    <p class="mt-1 max-w-2xl text-xs sm:text-sm text-gray-500">Latest generated podcast episodes</p>
                 </div>
                 <ul class="divide-y divide-gray-200">
                     {% for episode in recent_episodes %}
                     <li>
-                        <div class="px-4 py-4 flex items-center justify-between">
+                        <div class="px-3 sm:px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0">
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
@@ -119,19 +153,19 @@
                                     </span>
                                 </div>
                                 <div class="ml-4">
-                                    <div class="text-sm font-medium text-gray-900">Episode {{ episode.id[:8] if episode.id is string else episode.id.hex[:8] }}...</div>
-                                    <div class="text-sm text-gray-500">{{ episode.created_at.strftime('%Y-%m-%d %H:%M') if episode.created_at else '' }}</div>
+                                    <div class="text-xs sm:text-sm font-medium text-gray-900">Episode {{ episode.id[:8] if episode.id is string else episode.id.hex[:8] }}...</div>
+                                    <div class="text-xs text-gray-500">{{ episode.created_at.strftime('%Y-%m-%d %H:%M') if episode.created_at else '' }}</div>
                                 </div>
                             </div>
-                            <div class="flex items-center space-x-3">
-                                <a href="/api/episodes/{{ episode.id }}" class="text-blue-600 hover:text-blue-900">Script</a>
-                                <span class="text-gray-300">|</span>
+                            <div class="flex items-center flex-wrap gap-2 ml-12 sm:ml-0">
+                                <a href="/api/episodes/{{ episode.id }}" class="text-xs sm:text-sm text-blue-600 hover:text-blue-900">Script</a>
                                 {% if episode.has_mp3 %}
-                                <a href="{{ episode.listen_url }}" target="_blank" class="text-green-600 hover:text-green-800">Listen</a>
-                                <span class="text-gray-300">|</span>
-                                <a href="{{ episode.mp3_url }}" target="_blank" class="text-purple-600 hover:text-purple-800">MP3</a>
+                                <span class="hidden sm:inline text-gray-300">|</span>
+                                <a href="{{ episode.listen_url }}" target="_blank" class="text-xs sm:text-sm text-green-600 hover:text-green-800">Listen</a>
+                                <span class="hidden sm:inline text-gray-300">|</span>
+                                <a href="{{ episode.mp3_url }}" target="_blank" class="text-xs sm:text-sm text-purple-600 hover:text-purple-800">MP3</a>
                                 {% else %}
-                                <span class="inline-flex items-center text-yellow-700"><i class="bi bi-exclamation-triangle-fill mr-1"></i>MP3 missing</span>
+                                <span class="inline-flex items-center text-yellow-700 text-xs"><i class="bi bi-exclamation-triangle-fill mr-1"></i>MP3 missing</span>
                                 {% endif %}
                             </div>
                         </div>
@@ -143,19 +177,19 @@
             <!-- Cadence Status -->
             <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
                 <div class="px-4 py-5 sm:px-6">
-                    <h3 class="text-lg leading-6 font-medium text-gray-900">Cadence Status</h3>
-                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Current cadence per group and next eligible window</p>
+                    <h3 class="text-base sm:text-lg leading-6 font-medium text-gray-900">Cadence Status</h3>
+                    <p class="mt-1 max-w-2xl text-xs sm:text-sm text-gray-500">Current cadence per group and next eligible window</p>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
+                    <table class="min-w-full divide-y divide-gray-200 text-xs sm:text-sm">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bucket</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Published</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Next Eligible</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lock</th>
+                                <th class="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
+                                <th class="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bucket</th>
+                                <th class="hidden sm:table-cell px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Published</th>
+                                <th class="hidden md:table-cell px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Next Eligible</th>
+                                <th class="hidden lg:table-cell px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
+                                <th class="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lock</th>
                             </tr>
                         </thead>
                         <tbody id="cadence-body" class="bg-white divide-y divide-gray-200"></tbody>
@@ -196,26 +230,32 @@
             <!-- Groups & Assignments -->
             <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-md">
                 <div class="px-4 py-5 sm:px-6">
-                    <h3 class="text-lg leading-6 font-medium text-gray-900">Podcast Groups & Assignments</h3>
-                    <p class="mt-1 max-w-2xl text-sm text-gray-500">Presenters, writer and feeds</p>
+                    <h3 class="text-base sm:text-lg leading-6 font-medium text-gray-900">Podcast Groups & Assignments</h3>
+                    <p class="mt-1 max-w-2xl text-xs sm:text-sm text-gray-500">Presenters, writer and feeds</p>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
+                    <table class="min-w-full divide-y divide-gray-200 text-xs sm:text-sm">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenters</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Writer</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feeds</th>
+                                <th class="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
+                                <th class="hidden md:table-cell px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenters</th>
+                                <th class="hidden lg:table-cell px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Writer</th>
+                                <th class="hidden lg:table-cell px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feeds</th>
+                                <th class="px-2 sm:px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cadence Status</th>
                             </tr>
                         </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
+                        <tbody class="bg-white divide-y divide-gray-200" id="groups-table-body">
                             {% for g in groups_info %}
-                            <tr>
-                                <td class="px-4 py-2 text-sm text-gray-900">{{ g.name }}</td>
-                                <td class="px-4 py-2 text-sm text-gray-600">{{ ', '.join(g.presenters) }}</td>
-                                <td class="px-4 py-2 text-sm text-gray-600">{{ g.writer }}</td>
-                                <td class="px-4 py-2 text-sm text-gray-600">{{ g.feeds }}</td>
+                            <tr data-group-id="{{ g.id }}">
+                                <td class="px-2 sm:px-4 py-2 text-gray-900">{{ g.name }}</td>
+                                <td class="hidden md:table-cell px-2 sm:px-4 py-2 text-gray-600">{{ ', '.join(g.presenters) }}</td>
+                                <td class="hidden lg:table-cell px-2 sm:px-4 py-2 text-gray-600">{{ g.writer }}</td>
+                                <td class="hidden lg:table-cell px-2 sm:px-4 py-2 text-gray-600">{{ g.feeds }}</td>
+                                <td class="px-2 sm:px-4 py-2" id="cadence-{{ g.id }}">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                        <i class="bi bi-clock-history mr-1"></i>Loading...
+                                    </span>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -224,23 +264,23 @@
             </div>
 
             <!-- Quick Actions -->
-            <div class="mt-8 bg-white shadow rounded-lg p-6">
-                <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                    <button onclick="createNewGroup()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-plus-circle mr-2"></i>New Podcast Group
+            <div class="mt-8 bg-white shadow rounded-lg p-4 sm:p-6">
+                <h3 class="text-base sm:text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+                    <button onclick="createNewGroup()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-plus-circle mr-2"></i>New Group
                     </button>
-                    <button onclick="generateAIPersonas()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-robot mr-2"></i>Generate AI Personas
+                    <button onclick="generateAIPersonas()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-robot mr-2"></i>AI Personas
                     </button>
-                    <button onclick="viewAllEpisodes()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-list-ul mr-2"></i>View Episodes
+                    <button onclick="viewAllEpisodes()" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-list-ul mr-2"></i>Episodes
                     </button>
-                    <button onclick="systemStats()" class="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-graph-up mr-2"></i>System Stats
+                    <button onclick="systemStats()" class="bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-graph-up mr-2"></i>Stats
                     </button>
-                    <button onclick="healthCheck()" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
-                        <i class="bi bi-heart-pulse mr-2"></i>Health Check
+                    <button onclick="healthCheck()" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-3 px-4 rounded text-sm sm:text-base">
+                        <i class="bi bi-heart-pulse mr-2"></i>Health
                     </button>
                 </div>
             </div>
@@ -248,23 +288,92 @@
     </div>
 
     <script>
+        // Mobile menu toggle
+        document.addEventListener('DOMContentLoaded', () => {
+            const menuBtn = document.getElementById('mobile-menu-btn');
+            const mobileMenu = document.getElementById('mobile-menu');
+            
+            if (menuBtn && mobileMenu) {
+                menuBtn.addEventListener('click', () => {
+                    mobileMenu.classList.toggle('active');
+                });
+            }
+        });
+
         async function loadCadence() {
             try {
                 const res = await fetch('/api/cadence/status');
                 const data = await res.json();
                 const rows = (data.cadence_statuses || []).map(s => `
                     <tr>
-                        <td class="px-4 py-2 text-sm text-gray-900">${s.group_name || s.group_id}</td>
-                        <td class="px-4 py-2 text-sm"><span class="px-2 py-1 rounded text-xs ${s.bucket==='Daily'?'bg-green-100 text-green-800':(s.bucket==='3-Day'?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-800')}">${s.bucket}</span></td>
-                        <td class="px-4 py-2 text-sm text-gray-600">${s.last_published_at ? new Date(s.last_published_at).toLocaleString() : '—'}</td>
-                        <td class="px-4 py-2 text-sm text-gray-600">${s.next_eligible_at ? new Date(s.next_eligible_at).toLocaleString() : '—'}</td>
-                        <td class="px-4 py-2 text-sm text-gray-600">${s.reason || ''}</td>
-                        <td class="px-4 py-2 text-sm ${s.locked ? 'text-red-600' : 'text-green-600'}">${s.locked ? 'Locked' : 'Free'}</td>
+                        <td class="px-2 sm:px-4 py-2 text-gray-900">${s.group_name || s.group_id}</td>
+                        <td class="px-2 sm:px-4 py-2"><span class="px-2 py-1 rounded text-xs ${s.bucket==='Daily'?'bg-green-100 text-green-800':(s.bucket==='3-Day'?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-800')}">${s.bucket}</span></td>
+                        <td class="hidden sm:table-cell px-2 sm:px-4 py-2 text-gray-600">${s.last_published_at ? new Date(s.last_published_at).toLocaleString() : '—'}</td>
+                        <td class="hidden md:table-cell px-2 sm:px-4 py-2 text-gray-600">${s.next_eligible_at ? new Date(s.next_eligible_at).toLocaleString() : '—'}</td>
+                        <td class="hidden lg:table-cell px-2 sm:px-4 py-2 text-gray-600">${s.reason || ''}</td>
+                        <td class="px-2 sm:px-4 py-2 ${s.locked ? 'text-red-600' : 'text-green-600'}">${s.locked ? 'Locked' : 'Free'}</td>
                     </tr>
                 `).join('');
-                document.getElementById('cadence-body').innerHTML = rows || `<tr><td colspan="6" class="px-4 py-2 text-sm text-gray-500">No active groups</td></tr>`;
+                document.getElementById('cadence-body').innerHTML = rows || `<tr><td colspan="6" class="px-2 sm:px-4 py-2 text-gray-500">No active groups</td></tr>`;
             } catch (e) {
-                document.getElementById('cadence-body').innerHTML = `<tr><td colspan="6" class="px-4 py-2 text-sm text-red-600">Failed to load cadence status</td></tr>`;
+                document.getElementById('cadence-body').innerHTML = `<tr><td colspan="6" class="px-2 sm:px-4 py-2 text-red-600">Failed to load cadence status</td></tr>`;
+            }
+        }
+
+        async function updateCadenceStatusInTable() {
+            // Update cadence status in the podcast groups table
+            try {
+                const res = await fetch('/api/cadence/status');
+                const data = await res.json();
+                const statuses = data.cadence_statuses || [];
+                
+                statuses.forEach(status => {
+                    const groupId = status.group_id;
+                    const cell = document.getElementById(`cadence-${groupId}`);
+                    
+                    if (cell) {
+                        const bucket = status.bucket || 'Unknown';
+                        const locked = status.locked || false;
+                        const nextEligible = status.next_eligible_at;
+                        const reason = status.reason || '';
+                        
+                        let badgeColor = 'gray';
+                        let badgeIcon = 'clock-history';
+                        
+                        if (bucket === 'Daily') {
+                            badgeColor = 'green';
+                            badgeIcon = 'calendar-day';
+                        } else if (bucket === '3-Day') {
+                            badgeColor = 'blue';
+                            badgeIcon = 'calendar-week';
+                        } else if (bucket === 'Weekly') {
+                            badgeColor = 'yellow';
+                            badgeIcon = 'calendar3';
+                        }
+                        
+                        const lockBadge = locked ? 
+                            `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 ml-1" title="Generation in progress">
+                                <i class="bi bi-lock-fill"></i>
+                            </span>` : '';
+                        
+                        const nextEligibleText = nextEligible ? 
+                            `Next: ${new Date(nextEligible).toLocaleString()}` : 
+                            'Ready now';
+                        
+                        cell.innerHTML = `
+                            <div class="flex items-center">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-${badgeColor}-100 text-${badgeColor}-800" 
+                                      title="${reason}&#10;${nextEligibleText}">
+                                    <i class="bi bi-${badgeIcon} mr-1"></i>${bucket}
+                                </span>
+                                ${lockBadge}
+                            </div>
+                        `;
+                    }
+                });
+                
+            } catch (err) {
+                console.error('Error updating cadence status:', err);
             }
         }
 
@@ -338,6 +447,10 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadCadence();
             loadAIPresentersCount();
+            updateCadenceStatusInTable();
+            
+            // Refresh cadence status every 30 seconds
+            setInterval(updateCadenceStatusInTable, 30000);
         });
     </script>
 </body>
