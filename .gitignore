@@ -1,11 +1,36 @@
-<<<<<<< Current (Your changes)
-<<<<<<< Current (Your changes)
-Readme.md
-=======
+# Documentation and Archives
+Docs/
+Archive/
 
->>>>>>> Incoming (Background Agent changes)
-=======
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
 
->>>>>>> Incoming (Background Agent changes)
-VibeVoice-Community
-services/ai-overseer/app/__pycache__/services.cpython-313.pyc
+# VibeVoice Community (large repository)
+VibeVoice-Community/
+
+# Generated audio files
+generated_episodes/
+*.mp3
+*.wav
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
